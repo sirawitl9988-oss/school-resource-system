@@ -15,6 +15,7 @@ interface BorrowForm {
   requester_name: string
   position: string
   requester_department: string
+  email: string
   resource_id: string
   quantity: number
   borrow_date: string
@@ -26,6 +27,7 @@ const INITIAL_FORM_STATE: BorrowForm = {
   requester_name: '',
   position: 'ครู',
   requester_department: '',
+  email: '',
   resource_id: '',
   quantity: 1,
   borrow_date: '',
@@ -65,6 +67,11 @@ export default function BorrowPage() {
       return
     }
 
+    if (!form.email || !form.email.includes('@')) {
+      alert('กรุณากรอกอีเมลให้ถูกต้องเพื่อรับแจ้งเตือนสถานะ')
+      return
+    }
+
     const selectedResource = resources.find(
       (r) => r.id === Number(form.resource_id)
     )
@@ -81,28 +88,60 @@ export default function BorrowPage() {
 
     setLoading(true)
 
-    const payload = {
-      requester_name: form.requester_name,
-      position: form.position,
-      student_id: null,
-      requester_department: form.requester_department,
-      resource_id: Number(form.resource_id),
-      quantity: Number(form.quantity),
-      borrow_date: form.borrow_date,
-      return_date: form.return_date,
-      purpose: form.purpose,
-      status: 'PENDING',
-    }
+    try {
+      const payload = {
+        requester_name: form.requester_name.trim(),
+        position: form.position,
+        student_id: null,
+        requester_department: form.requester_department.trim(),
+        email: form.email.trim(),
+        resource_id: Number(form.resource_id),
+        quantity: Number(form.quantity),
+        borrow_date: form.borrow_date,
+        return_date: form.return_date,
+        purpose: form.purpose ? form.purpose.trim() : null,
+        status: 'PENDING',
+      }
 
-    const { error } = await supabase.from('borrow_requests').insert([payload])
+      const { data, error } = await supabase
+        .from('borrow_requests')
+        .insert([payload])
+        .select()
 
-    setLoading(false)
+      if (error) {
+        throw error
+      }
 
-    if (error) {
-      alert('เกิดข้อผิดพลาดในการส่งคำขอ: ' + error.message)
-    } else {
-      alert('ส่งคำขอยืมอุปกรณ์เรียบร้อยแล้ว! รอการอนุมัติจาก Admin')
-      setForm(INITIAL_FORM_STATE)
+      if (data && data.length > 0) {
+        const resourceName = selectedResource ? selectedResource.name : `อุปกรณ์รหัส ${form.resource_id}`
+
+        try {
+          await fetch('/api/send-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: `คำขอยืมอุปกรณ์ใหม่: ${resourceName}`,
+              requesterName: `${form.requester_name} (${form.position})`,
+              requesterEmail: form.email.trim(),
+              department: form.requester_department,
+              details: `อุปกรณ์: ${resourceName} | จำนวน: ${form.quantity} ชิ้น | วันที่ยืม: ${form.borrow_date} | กำหนดคืน: ${form.return_date} | วัตถุประสงค์: ${form.purpose || 'ไม่ได้ระบุ'}`,
+            }),
+          })
+        } catch (emailErr) {
+          console.error('Failed to send email notification:', emailErr)
+        }
+
+        alert('ส่งคำขอยืมอุปกรณ์เรียบร้อยแล้ว! ระบบจะแจ้งเตือนผ่านอีเมลเมื่อมีการอัปเดตสถานะ')
+        setForm(INITIAL_FORM_STATE)
+      } else {
+        alert('⚠️ บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
+      }
+    } catch (err: unknown) {
+      const error = err as Error
+      console.error('Insert Error:', error)
+      alert('เกิดข้อผิดพลาดในการส่งคำขอ: ' + (error.message || 'Error'))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -111,15 +150,17 @@ export default function BorrowPage() {
       <div className="max-w-4xl mx-auto space-y-6">
         <Link
           href="/"
-          className="inline-flex items-center text-sm text-gray-600 hover:text-blue-600 font-medium transition"
+          className="inline-flex items-center text-sm text-gray-600 hover:text-pink-600 font-medium transition"
         >
           ← กลับสู่หน้าหลัก โรงเรียนอุตรดิตถ์
         </Link>
 
         {/* ฟอร์มขอยืมอุปกรณ์ */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-pink-100 p-6 md:p-8">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-3xl">📦</span>
+            <span className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-pink-500 rounded-xl flex items-center justify-center text-2xl shadow-md shadow-pink-500/20 text-white">
+              📦
+            </span>
             <div>
               <h1 className="text-2xl font-bold text-gray-800">
                 แบบฟอร์มขอยืมอุปกรณ์
@@ -145,7 +186,7 @@ export default function BorrowPage() {
                   value={form.requester_name}
                   onChange={handleChange}
                   placeholder="ครูสมชาย ใจดี"
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
               </div>
 
@@ -157,7 +198,7 @@ export default function BorrowPage() {
                   name="position"
                   value={form.position}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
                 >
                   <option value="ครู">ครู / อาจารย์</option>
                   <option value="หัวหน้ากลุ่มสาระ">หัวหน้ากลุ่มสาระ</option>
@@ -167,19 +208,36 @@ export default function BorrowPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                สังกัด / กลุ่มสาระการเรียนรู้ *
-              </label>
-              <input
-                type="text"
-                name="requester_department"
-                required
-                value={form.requester_department}
-                onChange={handleChange}
-                placeholder="กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี"
-                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  สังกัด / กลุ่มสาระการเรียนรู้ *
+                </label>
+                <input
+                  type="text"
+                  name="requester_department"
+                  required
+                  value={form.requester_department}
+                  onChange={handleChange}
+                  placeholder="กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  อีเมล (สำหรับรับแจ้งเตือนสถานะ) *
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  value={form.email}
+                  onChange={handleChange}
+                  placeholder="somchai@ut.ac.th"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
+                />
+              </div>
             </div>
 
             <hr className="my-4 border-gray-100" />
@@ -193,7 +251,7 @@ export default function BorrowPage() {
                 required
                 value={form.resource_id}
                 onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
               >
                 <option value="" className="text-gray-500">
                   -- เลือกอุปกรณ์ --
@@ -218,7 +276,7 @@ export default function BorrowPage() {
                   required
                   value={form.quantity}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
               </div>
 
@@ -232,7 +290,7 @@ export default function BorrowPage() {
                   required
                   value={form.borrow_date}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
               </div>
 
@@ -246,7 +304,7 @@ export default function BorrowPage() {
                   required
                   value={form.return_date}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
               </div>
             </div>
@@ -261,14 +319,14 @@ export default function BorrowPage() {
                 value={form.purpose}
                 onChange={handleChange}
                 placeholder="ใช้ในการจัดการเรียนการสอน รายวิชา..."
-                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-md disabled:opacity-50 mt-4"
+              className="w-full bg-gradient-to-r from-blue-600 to-pink-500 hover:from-blue-700 hover:to-pink-600 text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-pink-500/20 disabled:opacity-50 mt-4"
             >
               {loading ? 'กำลังส่งข้อมูล...' : 'ส่งคำขอยืมอุปกรณ์'}
             </button>

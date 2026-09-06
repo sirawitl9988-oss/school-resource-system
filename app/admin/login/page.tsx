@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function AdminLogin() {
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
@@ -17,27 +17,27 @@ export default function AdminLogin() {
     setErrorMsg('')
 
     try {
-      // ค้นหาผู้ใช้จากตาราง admin_users
+      // ค้นหาผู้ใช้จากตาราง admin_users ด้วย email และ password[cite: 8]
       const { data, error } = await supabase
         .from('admin_users')
         .select('*')
-        .eq('username', username.trim())
+        .eq('email', email.trim())
         .eq('password', password)
         .single()
 
       if (error || !data) {
-        throw new Error('ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง')
+        throw new Error('อีเมลหรือรหัสผ่านไม่ถูกต้อง')
       }
 
-      // บันทึก Session ลงใน localStorage
+      // บันทึก Session ลงใน localStorage[cite: 8]
       localStorage.setItem('adminSession', JSON.stringify({
         id: data.id,
         name: data.name,
-        username: data.username,
+        email: data.email,
         role: data.role
       }))
 
-      // เข้าสู่หน้า Admin
+      // เข้าสู่หน้า Admin[cite: 8]
       router.push('/admin')
     } catch (err: any) {
       setErrorMsg(err.message || 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ')
@@ -54,7 +54,7 @@ export default function AdminLogin() {
             🔒
           </div>
           <h1 className="text-2xl font-bold text-gray-800">เข้าสู่ระบบ Admin</h1>
-          <p className="text-sm text-gray-500 mt-1">กรอกข้อมูลผู้ใช้งานเพื่อเข้าสู่ระบบจัดการ</p>
+          <p className="text-sm text-gray-500 mt-1">กรอกอีเมลแอดมินเพื่อเข้าสู่ระบบจัดการ</p>
         </div>
 
         {errorMsg && (
@@ -65,13 +65,12 @@ export default function AdminLogin() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
-              type="text"
+              type="email"
               required
-              placeholder="เช่น admin1"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-800"
             />
           </div>
@@ -81,7 +80,6 @@ export default function AdminLogin() {
             <input
               type="password"
               required
-              placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition text-gray-800"

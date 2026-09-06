@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 
 interface CalendarViewProps {
@@ -10,16 +10,22 @@ interface CalendarViewProps {
 interface CalendarEvent {
   id: string
   title: string
-  date: string // Format: YYYY-MM-DD
-  time?: string
+  startDate: string // YYYY-MM-DD
+  endDate: string // YYYY-MM-DD
+  timeText: string
   type: 'BOOKING' | 'BORROW'
-  status: string
+  details?: {
+    itemName: string
+    quantity?: number
+    timeInfo: string
+  }
 }
 
 export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) {
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [currentDate, setCurrentDate] = useState(new Date())
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -37,19 +43,29 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
           const { data: rooms } = await supabase.from('rooms').select('id, name')
           const roomMap = new Map(rooms?.map((r) => [r.id, r.name]) || [])
 
-          const formattedBookings: CalendarEvent[] = bookings.map((b) => ({
-            id: `booking-${b.id}`,
-            title: `🏫 ${roomMap.get(b.room_id) || 'ห้องประชุม'}`,
-            date: b.booking_date,
-            time: `${b.start_time?.slice(0, 5)} - ${b.end_time?.slice(0, 5)}`,
-            type: 'BOOKING',
-            status: b.status,
-          }))
+          const formattedBookings: CalendarEvent[] = bookings.map((b) => {
+            const roomName = roomMap.get(b.room_id) || 'ห้องประชุม'
+            const startTimeStr = b.start_time?.slice(0, 5) || '00:00'
+            const endTimeStr = b.end_time?.slice(0, 5) || '23:59'
+
+            return {
+              id: `booking-${b.id}`,
+              title: `🏫 ${roomName}`,
+              startDate: b.booking_date,
+              endDate: b.booking_date,
+              timeText: `${startTimeStr} - ${endTimeStr} น.`,
+              type: 'BOOKING',
+              details: {
+                itemName: roomName,
+                timeInfo: `เวลา ${startTimeStr} - ${endTimeStr} น.`,
+              },
+            }
+          })
           combinedEvents = [...combinedEvents, ...formattedBookings]
         }
       }
 
-      // 2. ดึงข้อมูลการยืมอุปกรณ์
+      // 2. ดึงข้อมูลการยืมอุปกรณ์ (ตั้งเงื่อนไขคืนภายใน 16:00 น. ของวัน return_date)
       if (filterType === 'ALL' || filterType === 'BORROW') {
         const { data: borrows, error: borrowErr } = await supabase
           .from('borrow_requests')
@@ -60,14 +76,32 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
           const { data: resources } = await supabase.from('resources').select('id, name')
           const resourceMap = new Map(resources?.map((r) => [r.id, r.name]) || [])
 
-          const formattedBorrows: CalendarEvent[] = borrows.map((b) => ({
-            id: `borrow-${b.id}`,
-            title: `📦 ${resourceMap.get(b.resource_id) || 'อุปกรณ์'} (${b.quantity})`,
-            date: b.borrow_date,
-            time: `คืน ${b.return_date}`,
-            type: 'BORROW',
-            status: b.status,
-          }))
+          const formattedBorrows: CalendarEvent[] = borrows.map((b) => {
+            const resourceName = resourceMap.get(b.resource_id) || 'อุปกรณ์'
+            const startDate = b.borrow_date
+            const endDate = b.return_date || b.borrow_date
+            const isSameDay = startDate === endDate
+
+            const timeText = isSameDay
+              ? `ยืม 08:30 - คืนก่อน 16:00 น.`
+              : `ยืม ${startDate} ถึง ${endDate} (คืนก่อน 16:00 น.)`
+
+            return {
+              id: `borrow-${b.id}`,
+              title: `📦 ${resourceName} (${b.quantity})`,
+              startDate,
+              endDate,
+              timeText,
+              type: 'BORROW',
+              details: {
+                itemName: resourceName,
+                quantity: b.quantity,
+                timeInfo: isSameDay
+                  ? `ยืมวันที่ ${startDate} (รับ 08:30 น. - คืนภายใน 16:00 น.)`
+                  : `ยืมตั้งแต่วันที่ ${startDate} ถึง ${endDate} (ต้องคืนภายในเวลา 16:00 น. ของวันที่ ${endDate})`,
+              },
+            }
+          })
           combinedEvents = [...combinedEvents, ...formattedBorrows]
         }
       }
@@ -85,16 +119,8 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
 
     const channel = supabase
       .channel('calendar-grid-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'booking_requests' },
-        () => fetchEvents()
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'borrow_requests' },
-        () => fetchEvents()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'booking_requests' }, () => fetchEvents())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests' }, () => fetchEvents())
       .subscribe()
 
     return () => {
@@ -102,12 +128,8 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
     }
   }, [fetchEvents])
 
-  // คำนวณวันในปฏิทิน
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
-
-  const firstDayOfMonth = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
 
   const prevMonth = () => setCurrentDate(new Date(year, month - 1, 1))
   const nextMonth = () => setCurrentDate(new Date(year, month + 1, 1))
@@ -117,9 +139,45 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
   ]
 
+  // แบ่งสัปดาห์ออกเป็น Array ของ 7 วันสำหรับสร้าง Grid
+  const calendarWeeks = useMemo(() => {
+    const firstDay = new Date(year, month, 1)
+    const lastDay = new Date(year, month + 1, 0)
+
+    const startDate = new Date(firstDay)
+    startDate.setDate(startDate.getDate() - firstDay.getDay()) // ย้อนกลับไปวันอาทิตย์แรกของสัปดาห์
+
+    const weeks: { date: Date; dateStr: string; isCurrentMonth: boolean }[][] = []
+    let currentWeek: { date: Date; dateStr: string; isCurrentMonth: boolean }[] = []
+
+    let tempDate = new Date(startDate)
+    while (tempDate <= lastDay || currentWeek.length > 0) {
+      const y = tempDate.getFullYear()
+      const m = String(tempDate.getMonth() + 1).padStart(2, '0')
+      const d = String(tempDate.getDate()).padStart(2, '0')
+      const dateStr = `${y}-${m}-${d}`
+
+      currentWeek.push({
+        date: new Date(tempDate),
+        dateStr,
+        isCurrentMonth: tempDate.getMonth() === month,
+      })
+
+      if (currentWeek.length === 7) {
+        weeks.push(currentWeek)
+        if (tempDate > lastDay) break
+        currentWeek = []
+      }
+
+      tempDate.setDate(tempDate.getDate() + 1)
+    }
+
+    return weeks
+  }, [year, month])
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-      {/* Header ปฏิทิน */}
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 select-none relative">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-gray-800">
@@ -128,10 +186,7 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
           {loading && <span className="text-xs text-gray-400">กำลังอัปเดต...</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={prevMonth}
-            className="p-2 border rounded-lg hover:bg-gray-50 text-sm font-semibold"
-          >
+          <button onClick={prevMonth} className="p-2 border rounded-lg hover:bg-gray-50 text-sm font-semibold">
             ← เดือนก่อน
           </button>
           <button
@@ -140,10 +195,7 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
           >
             วันนี้
           </button>
-          <button
-            onClick={nextMonth}
-            className="p-2 border rounded-lg hover:bg-gray-50 text-sm font-semibold"
-          >
+          <button onClick={nextMonth} className="p-2 border rounded-lg hover:bg-gray-50 text-sm font-semibold">
             เดือนถัดไป →
           </button>
         </div>
@@ -160,49 +212,119 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
         <div className="text-blue-500 py-2">ส</div>
       </div>
 
-      {/* ช่องตารางวันที่ */}
-      <div className="grid grid-cols-7 border-t border-l border-gray-200">
-        {/* ช่องว่างก่อนวันที่ 1 */}
-        {Array.from({ length: firstDayOfMonth }).map((_, index) => (
-          <div key={`empty-${index}`} className="min-h-[110px] border-r border-b border-gray-200 bg-gray-50/50" />
-        ))}
+      {/* ตารางแสดงผลแบบแบ่งสัปดาห์ */}
+      <div className="border-t border-l border-gray-200">
+        {calendarWeeks.map((week, weekIndex) => {
+          const weekStart = week[0].dateStr
+          const weekEnd = week[6].dateStr
 
-        {/* ช่องวันที่ 1 ถึง สิ้นเดือน */}
-        {Array.from({ length: daysInMonth }).map((_, index) => {
-          const dayNum = index + 1
-          const dateString = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
-          const dayEvents = events.filter((e) => e.date === dateString)
+          // ดึง Event ที่ครอบคลุมช่วงสัปดาห์นี้
+          const weekEvents = events.filter(
+            (e) => e.startDate <= weekEnd && e.endDate >= weekStart
+          )
 
           return (
-            <div
-              key={`day-${dayNum}`}
-              className="min-h-[110px] border-r border-b border-gray-200 p-1.5 flex flex-col justify-start bg-white"
-            >
-              <span className="text-xs font-semibold text-gray-700 mb-1">
-                {dayNum}
-              </span>
-
-              {/* รายการ Events ในแต่ละวัน */}
-              <div className="space-y-1 overflow-y-auto max-h-[85px]">
-                {dayEvents.map((event) => (
+            <div key={`week-${weekIndex}`} className="relative">
+              {/* Layer 1: พื้นหลังตารางวัน 7 ช่อง */}
+              <div className="grid grid-cols-7">
+                {week.map((day) => (
                   <div
-                    key={event.id}
-                    className={`text-[10px] p-1 rounded font-medium truncate ${
-                      event.type === 'BOOKING'
-                        ? 'bg-blue-100 text-blue-800 border border-blue-200'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    key={day.dateStr}
+                    className={`min-h-[110px] border-r border-b border-gray-200 p-1.5 flex flex-col justify-start ${
+                      day.isCurrentMonth ? 'bg-white' : 'bg-gray-50/50 text-gray-300'
                     }`}
-                    title={`${event.title} (${event.time})`}
                   >
-                    <div className="font-bold truncate">{event.title}</div>
-                    <div className="opacity-80 text-[9px]">{event.time}</div>
+                    <span
+                      className={`text-xs font-semibold ${
+                        day.isCurrentMonth ? 'text-gray-700' : 'text-gray-300'
+                      }`}
+                    >
+                      {day.date.getDate()}
+                    </span>
                   </div>
                 ))}
+              </div>
+
+              {/* Layer 2: แถบกิจกรรมยาวคร่อมวัน (ซ้อนทับอยู่ด้านบน) */}
+              <div className="absolute top-7 left-0 right-0 grid grid-cols-7 gap-y-1 px-0.5 pointer-events-none">
+                {weekEvents.map((event) => {
+                  const startCol =
+                    event.startDate <= weekStart
+                      ? 1
+                      : week.findIndex((d) => d.dateStr === event.startDate) + 1
+
+                  const endCol =
+                    event.endDate >= weekEnd
+                      ? 8
+                      : week.findIndex((d) => d.dateStr === event.endDate) + 2
+
+                  const isStartOfWeek = event.startDate <= weekStart
+                  const isEndOfWeek = event.endDate >= weekEnd
+
+                  return (
+                    <div
+                      key={`${event.id}-${weekIndex}`}
+                      onClick={() => setSelectedEvent(event)}
+                      className={`pointer-events-auto my-0.5 px-2 py-1 text-[11px] font-medium flex items-center shadow-sm overflow-hidden whitespace-nowrap cursor-pointer transition hover:opacity-90 ${
+                        event.type === 'BOOKING'
+                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                          : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      } ${isStartOfWeek ? 'rounded-l-none border-l-0' : 'rounded-l-md'} ${
+                        isEndOfWeek ? 'rounded-r-none border-r-0' : 'rounded-r-md'
+                      }`}
+                      style={{
+                        gridColumnStart: startCol,
+                        gridColumnEnd: endCol,
+                      }}
+                      title={`${event.title} (${event.timeText})`}
+                    >
+                      <span className="font-semibold truncate">{event.title}</span>
+                      <span className="ml-1.5 text-[9px] opacity-75 truncate hidden sm:inline">
+                        ({event.timeText})
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )
         })}
       </div>
+
+      {/* Modal สรุปข้อมูลเมื่อคลิกแถบปฏิทิน */}
+      {selectedEvent && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-lg border border-gray-100">
+            <div className="flex justify-between items-start mb-3">
+              <h3 className="text-lg font-bold text-gray-800">{selectedEvent.title}</h3>
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="text-gray-400 hover:text-gray-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2 text-sm text-gray-600">
+              <p>
+                <span className="font-semibold text-gray-700">ประเภท:</span>{' '}
+                {selectedEvent.type === 'BOOKING' ? 'จองห้องประชุม' : 'ยืมอุปกรณ์'}
+              </p>
+              <p>
+                <span className="font-semibold text-gray-700">ช่วงเวลา:</span>{' '}
+                {selectedEvent.details?.timeInfo}
+              </p>
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button
+                onClick={() => setSelectedEvent(null)}
+                className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg"
+              >
+                ปิด
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

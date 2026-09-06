@@ -77,20 +77,19 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50 pb-12">
-      {/* Banner ส่วนบน */}
-      <div className="relative w-full h-[300px] bg-slate-900 text-white flex flex-col items-center justify-center overflow-hidden shadow-lg">
-        <img
-          src="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?q=80&w=1600&auto=format&fit=crop"
-          alt="School Background"
-          className="absolute inset-0 w-full h-full object-cover opacity-30"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-transparent"></div>
+      {/* Banner ส่วนบน พร้อมรูปพื้นหลังโรงเรียนจากโฟลเดอร์ public */}
+      <div 
+        className="relative w-full h-[350px] bg-cover bg-center text-white flex flex-col items-center justify-center overflow-hidden shadow-lg"
+        style={{ backgroundImage: `url('/school-bg.jpg')` }}
+      >
+        {/* เลเยอร์สีดำโปร่งแสงทับภาพ เพื่อให้ตัวหนังสือโดดเด่นและอ่านง่าย */}
+        <div className="absolute inset-0 bg-black/60"></div>
 
         <div className="relative z-10 text-center px-4">
-          <span className="bg-blue-600/80 text-blue-100 text-xs md:text-sm font-semibold tracking-wider px-3 py-1 rounded-full uppercase border border-blue-400/30">
-            Resource Management System
+          <span className="bg-pink-600 text-white text-xs md:text-sm font-semibold tracking-wider px-4 py-1.5 rounded-full uppercase shadow-md">
+            RESOURCE MANAGEMENT SYSTEM
           </span>
-          <h1 className="text-3xl md:text-5xl font-extrabold mt-3 drop-shadow-md tracking-tight">
+          <h1 className="text-3xl md:text-5xl font-extrabold mt-3 drop-shadow-md tracking-tight text-white">
             โรงเรียนอุตรดิตถ์
           </h1>
           <p className="text-gray-200 text-sm md:text-base mt-2 max-w-xl mx-auto font-light">
@@ -104,7 +103,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Link
             href="/borrow"
-            className="flex items-center justify-center gap-3 bg-blue-600 hover:bg-blue-700 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1"
+            className="flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1 shadow-blue-500/20"
           >
             <span className="text-2xl">📦</span>
             <span>ยืมอุปกรณ์</span>
@@ -112,7 +111,7 @@ export default function Home() {
 
           <Link
             href="/booking"
-            className="flex items-center justify-center gap-3 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1"
+            className="flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-pink-500 hover:from-blue-700 hover:to-pink-600 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1 shadow-pink-500/20"
           >
             <span className="text-2xl">🏫</span>
             <span>จองห้อง</span>
@@ -120,7 +119,7 @@ export default function Home() {
 
           <Link
             href="/maintenance"
-            className="flex items-center justify-center gap-3 bg-amber-600 hover:bg-amber-700 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1"
+            className="flex items-center justify-center gap-3 bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white text-lg font-bold py-5 px-6 rounded-2xl shadow-lg transition duration-200 transform hover:-translate-y-1 shadow-pink-500/20"
           >
             <span className="text-2xl">🛠️</span>
             <span>แจ้งซ่อม</span>
@@ -130,12 +129,12 @@ export default function Home() {
         {/* ส่วนปฏิทิน FullCalendar */}
         <CalendarView filterType={filterType === 'borrow' ? 'BORROW' : filterType === 'booking' ? 'BOOKING' : 'ALL'} />
 
-        {/* ตารางการใช้งานแบบรายการการ์ดเดิม */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b">
+        {/* ตารางการใช้งานแบบรายการการ์ด */}
+        <div className="bg-white rounded-2xl shadow-sm border border-pink-100 p-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 pb-4 border-b border-gray-100">
             <div>
               <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                <span>📋</span> รายการอนุมัติล่าสุด
+                <span className="text-pink-500">📋</span> รายการอนุมัติล่าสุด
               </h2>
               <p className="text-xs text-gray-500 mt-0.5">ค้นหาและกรองรายการตามวันที่หรือประเภท</p>
             </div>
@@ -145,12 +144,12 @@ export default function Home() {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="text-xs border border-gray-300 rounded-lg p-2 bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none"
+                className="text-xs border border-gray-300 rounded-lg p-2 bg-gray-50 focus:ring-2 focus:ring-pink-500 outline-none"
               />
               {selectedDate && (
                 <button
                   onClick={() => setSelectedDate('')}
-                  className="text-xs text-red-500 hover:underline"
+                  className="text-xs text-pink-600 hover:underline"
                 >
                   ล้างวันที่
                 </button>
@@ -160,7 +159,7 @@ export default function Home() {
                 <button
                   onClick={() => setFilterType('all')}
                   className={`px-3 py-1.5 rounded-md transition ${
-                    filterType === 'all' ? 'bg-white shadow text-gray-800' : 'text-gray-500'
+                    filterType === 'all' ? 'bg-white shadow text-gray-800 font-bold' : 'text-gray-500'
                   }`}
                 >
                   ทั้งหมด
@@ -168,7 +167,7 @@ export default function Home() {
                 <button
                   onClick={() => setFilterType('borrow')}
                   className={`px-3 py-1.5 rounded-md transition ${
-                    filterType === 'borrow' ? 'bg-white shadow text-blue-600' : 'text-gray-500'
+                    filterType === 'borrow' ? 'bg-white shadow text-blue-600 font-bold' : 'text-gray-500'
                   }`}
                 >
                   📦 ยืมอุปกรณ์
@@ -176,7 +175,7 @@ export default function Home() {
                 <button
                   onClick={() => setFilterType('booking')}
                   className={`px-3 py-1.5 rounded-md transition ${
-                    filterType === 'booking' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'
+                    filterType === 'booking' ? 'bg-white shadow text-pink-600 font-bold' : 'text-gray-500'
                   }`}
                 >
                   🏫 จองห้อง
@@ -198,17 +197,17 @@ export default function Home() {
                   key={item.id}
                   className={`p-4 rounded-xl border transition hover:shadow-md ${
                     item.type === 'borrow'
-                      ? 'bg-blue-50/50 border-blue-100'
-                      : 'bg-indigo-50/50 border-indigo-100'
+                      ? 'bg-blue-50/40 border-blue-100'
+                      : 'bg-pink-50/40 border-pink-100'
                   }`}
                 >
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <span className="font-bold text-gray-800">{item.title}</span>
                     <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
                         item.type === 'borrow'
                           ? 'bg-blue-100 text-blue-700'
-                          : 'bg-indigo-100 text-indigo-700'
+                          : 'bg-pink-100 text-pink-700'
                       }`}
                     >
                       {item.type === 'borrow' ? 'การยืม' : 'การจองห้อง'}
