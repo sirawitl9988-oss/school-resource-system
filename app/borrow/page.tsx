@@ -11,13 +11,17 @@ interface Resource {
   available_quantity: number
 }
 
+interface BorrowItem {
+  resource_id: string
+  quantity: number
+}
+
 interface BorrowForm {
   requester_name: string
   position: string
   requester_department: string
   email: string
-  resource_id: string
-  quantity: number
+  items: BorrowItem[]
   borrow_date: string
   return_date: string
   purpose: string
@@ -28,8 +32,7 @@ const INITIAL_FORM_STATE: BorrowForm = {
   position: 'ครู',
   requester_department: '',
   email: '',
-  resource_id: '',
-  quantity: 1,
+  items: [{ resource_id: '', quantity: 1 }],
   borrow_date: '',
   return_date: '',
   purpose: '',
@@ -59,25 +62,60 @@ export default function BorrowPage() {
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
+  // จัดการการเปลี่ยนค่าของอุปกรณ์ พร้อมเช็กไม่ให้เลือกซ้ำ
+  const handleItemChange = (index: number, field: 'resource_id' | 'quantity', value: string | number) => {
+    if (field === 'resource_id') {
+      const isAlreadySelected = form.items.some(
+        (item, i) => i !== index && item.resource_id === value && value !== ''
+      )
+      if (isAlreadySelected) {
+        alert('❌ คุณได้เลือกอุปกรณ์นี้ไปแล้วในรายการอื่น กรุณาเพิ่มจำนวนในแถวเดิมแทน')
+        return
+      }
+    }
+
+    const updatedItems = [...form.items]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setForm((prev) => ({ ...prev, items: updatedItems }))
+  }
+
+  // เพิ่มแถวอุปกรณ์
+  const handleaddItem = () => {
+    setForm((prev) => ({
+      ...prev,
+      items: [...prev.items, { resource_id: '', quantity: 1 }],
+    }))
+  }
+
+  // ลบแถวอุปกรณ์
+  const handleRemoveItem = (index: number) => {
+    if (form.items.length === 1) {
+      alert('ต้องมีรายการอุปกรณ์อย่างน้อย 1 รายการ')
+      return
+    }
+    const updatedItems = form.items.filter((_, i) => i !== index)
+    setForm((prev) => ({ ...prev, items: updatedItems }))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!form.resource_id) {
-      alert('กรุณาเลือกอุปกรณ์ที่ต้องการยืม')
-      return
+    for (const [index, item] of form.items.entries()) {
+      if (!item.resource_id) {
+        alert(`กรุณาเลือกอุปกรณ์ในรายการที่ ${index + 1}`)
+        return
+      }
+      const selectedResource = resources.find((r) => r.id === Number(item.resource_id))
+      if (selectedResource) {
+        if (Number(item.quantity) > selectedResource.available_quantity) {
+          alert(`❌ อุปกรณ์ "${selectedResource.name}" มีคงเหลือเพียง ${selectedResource.available_quantity} ชิ้นเท่านั้น ไม่สามารถยืมเกินจำนวนได้`)
+          return
+        }
+      }
     }
 
     if (!form.email || !form.email.includes('@')) {
       alert('กรุณากรอกอีเมลให้ถูกต้องเพื่อรับแจ้งเตือนสถานะ')
-      return
-    }
-
-    const selectedResource = resources.find(
-      (r) => r.id === Number(form.resource_id)
-    )
-
-    if (selectedResource && Number(form.quantity) > selectedResource.available_quantity) {
-      alert(`อุปกรณ์นี้มีคงเหลือเพียง ${selectedResource.available_quantity} ชิ้น`)
       return
     }
 
@@ -89,49 +127,56 @@ export default function BorrowPage() {
     setLoading(true)
 
     try {
-      const payload = {
-        requester_name: form.requester_name.trim(),
-        position: form.position,
-        student_id: null,
-        requester_department: form.requester_department.trim(),
-        email: form.email.trim(),
-        resource_id: Number(form.resource_id),
-        quantity: Number(form.quantity),
-        borrow_date: form.borrow_date,
-        return_date: form.return_date,
-        purpose: form.purpose ? form.purpose.trim() : null,
-        status: 'PENDING',
+      let successCount = 0
+      const summaryDetails: string[] = []
+
+      for (const item of form.items) {
+        const selectedResource = resources.find((r) => r.id === Number(item.resource_id))
+        const resourceName = selectedResource ? selectedResource.name : `อุปกรณ์รหัส ${item.resource_id}`
+
+        const payload = {
+          requester_name: form.requester_name.trim(),
+          position: form.position,
+          student_id: null,
+          requester_department: form.requester_department.trim(),
+          email: form.email.trim(),
+          resource_id: Number(item.resource_id),
+          quantity: Number(item.quantity),
+          borrow_date: form.borrow_date,
+          return_date: form.return_date,
+          purpose: form.purpose ? form.purpose.trim() : null,
+          status: 'PENDING',
+        }
+
+        const { data, error } = await supabase
+          .from('borrow_requests')
+          .insert([payload])
+          .select()
+
+        if (!error && data) {
+          successCount++
+          summaryDetails.push(`${resourceName} (${item.quantity} ชิ้น)`)
+        }
       }
 
-      const { data, error } = await supabase
-        .from('borrow_requests')
-        .insert([payload])
-        .select()
-
-      if (error) {
-        throw error
-      }
-
-      if (data && data.length > 0) {
-        const resourceName = selectedResource ? selectedResource.name : `อุปกรณ์รหัส ${form.resource_id}`
-
+      if (successCount > 0) {
         try {
           await fetch('/api/send-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              title: `คำขอยืมอุปกรณ์ใหม่: ${resourceName}`,
+              title: `คำขอยืมอุปกรณ์ใหม่ (${successCount} รายการ)`,
               requesterName: `${form.requester_name} (${form.position})`,
               requesterEmail: form.email.trim(),
               department: form.requester_department,
-              details: `อุปกรณ์: ${resourceName} | จำนวน: ${form.quantity} ชิ้น | วันที่ยืม: ${form.borrow_date} | กำหนดคืน: ${form.return_date} | วัตถุประสงค์: ${form.purpose || 'ไม่ได้ระบุ'}`,
+              details: `รายการอุปกรณ์: ${summaryDetails.join(', ')} | วันที่ยืม: ${form.borrow_date} | กำหนดคืน: ${form.return_date} | วัตถุประสงค์: ${form.purpose || 'ไม่ได้ระบุ'}`,
             }),
           })
         } catch (emailErr) {
           console.error('Failed to send email notification:', emailErr)
         }
 
-        alert('ส่งคำขอยืมอุปกรณ์เรียบร้อยแล้ว! ระบบจะแจ้งเตือนผ่านอีเมลเมื่อมีการอัปเดตสถานะ')
+        alert('✅ ส่งคำขอยืมอุปกรณ์เรียบร้อยแล้ว! ระบบจะแจ้งเตือนผ่านอีเมลเมื่อมีการอัปเดตสถานะ')
         setForm(INITIAL_FORM_STATE)
       } else {
         alert('⚠️ บันทึกข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
@@ -242,44 +287,79 @@ export default function BorrowPage() {
 
             <hr className="my-4 border-gray-100" />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                เลือกอุปกรณ์ที่ต้องการยืม *
-              </label>
-              <select
-                name="resource_id"
-                required
-                value={form.resource_id}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
-              >
-                <option value="" className="text-gray-500">
-                  -- เลือกอุปกรณ์ --
-                </option>
-                {resources.map((item) => (
-                  <option key={item.id} value={item.id} className="text-gray-900">
-                    {item.name} (คงเหลือในคลัง: {item.available_quantity} ชิ้น)
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  จำนวนที่ยืม *
+            {/* ส่วนเลือกอุปกรณ์พร้อมปุ่มเพิ่มรายการ */}
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <label className="block text-sm font-medium text-gray-700">
+                  รายการอุปกรณ์ที่ต้องการยืม *
                 </label>
-                <input
-                  type="number"
-                  name="quantity"
-                  min="1"
-                  required
-                  value={form.quantity}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
-                />
+                <button
+                  type="button"
+                  onClick={handleaddItem}
+                  className="text-xs bg-pink-50 text-pink-600 hover:bg-pink-100 font-semibold px-3 py-1.5 rounded-lg border border-pink-200 transition flex items-center gap-1"
+                >
+                  ➕ เพิ่มรายการอุปกรณ์
+                </button>
               </div>
 
+              {form.items.map((item, index) => {
+                const selectedRes = resources.find((r) => r.id === Number(item.resource_id))
+                const maxQty = selectedRes ? selectedRes.available_quantity : 999
+
+                return (
+                  <div key={index} className="flex gap-2 items-center bg-gray-50 p-3 rounded-xl border border-gray-200">
+                    <div className="flex-1">
+                      <select
+                        required
+                        value={item.resource_id}
+                        onChange={(e) => handleItemChange(index, 'resource_id', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
+                      >
+                        <option value="" className="text-gray-500">
+                          -- เลือกอุปกรณ์ --
+                        </option>
+                        {resources.map((res) => {
+                          const isPickedElsewhere = form.items.some(
+                            (otherItem, otherIdx) => otherIdx !== index && otherItem.resource_id === String(res.id)
+                          )
+                          return (
+                            <option key={res.id} value={res.id} disabled={isPickedElsewhere} className="text-gray-900">
+                              {res.name} (คงเหลือ: {res.available_quantity} ชิ้น) {isPickedElsewhere ? ' - (เลือกไปแล้ว)' : ''}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+
+                    <div className="w-32">
+                      <input
+                        type="number"
+                        min="1"
+                        max={maxQty}
+                        required
+                        value={item.quantity}
+                        onChange={(e) => handleItemChange(index, 'quantity', Number(e.target.value))}
+                        placeholder="จำนวน"
+                        className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
+                      />
+                    </div>
+
+                    {form.items.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItem(index)}
+                        className="bg-red-50 hover:bg-red-100 text-red-600 p-2.5 rounded-lg transition text-sm"
+                        title="ลบรายการนี้"
+                      >
+                        ❌
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   วันที่ยืม *

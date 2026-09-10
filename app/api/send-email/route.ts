@@ -24,15 +24,21 @@ export async function POST(request: Request) {
     } = body
 
     const userEmail = (requesterEmail || toEmail || '').trim()
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.GMAIL_USER
+    
+    // เพิ่มอีเมลแอดมินทั้ง 3 คน (รวมคุณสิรวิชญ์) ตรงนี้
+    const adminEmails = [
+      'tingdaiwa@utd.ac.th',
+      'toonvivat252811@utd.ac.th',
+      'sirawit.l9988@gmail.com'
+    ]
     const senderName = 'ระบบบริการโรงเรียน'
 
     // 1. กรณีแจ้งเตือนเมื่อมีคำขอเข้ามาใหม่
     if (!status) {
-      // 1.1 ส่งแจ้งเตือนหา Admin
+      // 1.1 ส่งแจ้งเตือนหา Admin ทั้ง 3 คนพร้อมกัน
       await transporter.sendMail({
         from: `"${senderName}" <${process.env.GMAIL_USER}>`,
-        to: adminEmail,
+        to: adminEmails.join(', '), // ส่งหาแอดมินหลายคนโดยคั่นด้วยเครื่องหมายจุลภาค (,)
         subject: `[คำขอใหม่] ${title}`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -43,12 +49,12 @@ export async function POST(request: Request) {
             <p><strong>หน่วยงาน/สังกัด:</strong> ${department || 'ไม่ได้ระบุ'}</p>
             <p><strong>รายละเอียด:</strong> ${details}</p>
             <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;" />
-            <p style="font-size: 12px; color: #64748b;">อีเมลนี้แจ้งเตือนอัตโนมัติถึง Admin</p>
+            <p style="font-size: 12px; color: #64748b;">อีเมลนี้แจ้งเตือนอัตโนมัติถึง Admin ทุกท่าน</p>
           </div>
         `,
       })
 
-      // 1.2 ส่งยืนยันกลับไปหาผู้ยืม/ผู้จอง (ส่งได้ทุกอีเมลแน่นอน)
+      // 1.2 ส่งยืนยันกลับไปหาผู้ยืม/ผู้จอง
       if (userEmail) {
         await transporter.sendMail({
           from: `"${senderName}" <${process.env.GMAIL_USER}>`,
