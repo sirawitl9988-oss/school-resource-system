@@ -578,7 +578,7 @@ export default function AdminDashboard() {
       'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
     ]
     const thaiYear = targetYear + 543
-    return `รายงานตารางการจองห้องประชุม ประจำเดือน ${monthNamesThai[targetMonth]} พ.ศ. ${thaiYear}`
+    return `ตารางการจองห้อง ประจำเดือน ${monthNamesThai[targetMonth]} พ.ศ. ${thaiYear}`
   }
 
   const handleDownloadPDF = () => {
