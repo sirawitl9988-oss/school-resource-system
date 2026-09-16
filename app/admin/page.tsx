@@ -81,7 +81,34 @@ export default function AdminDashboard() {
 
   const [notification, setNotification] = useState<NotificationAlert | null>(null)
 
-  // ฟังก์ชันแปลงเวลามาตรฐาน (จัดการทั้งแบบมี Z และไม่มี Z ให้แสดงผลเวลาไทยตรงกันเป๊ะ)[cite: 10]
+  // State สำหรับเลือกเดือนและปี พ.ศ. ของแต่ละแท็บ
+  const [borrowYear, setBorrowYear] = useState<number | null>(null)
+  const [borrowMonthNum, setBorrowMonthNum] = useState<number | null>(null)
+  const [showAllBorrow, setShowAllBorrow] = useState<boolean>(true)
+
+  const [bookingYear, setBookingYear] = useState<number | null>(null)
+  const [bookingMonthNum, setBookingMonthNum] = useState<number | null>(null)
+  const [showAllBookings, setShowAllBookings] = useState<boolean>(true)
+
+  const [maintYear, setMaintYear] = useState<number | null>(null)
+  const [maintMonthNum, setMaintMonthNum] = useState<number | null>(null)
+  const [showAllMaint, setShowAllMaint] = useState<boolean>(true)
+
+  const printMonth = (bookingYear && bookingMonthNum) 
+    ? `${bookingYear}-${String(bookingMonthNum).padStart(2, '0')}` 
+    : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+
+  const generateYearsList = () => {
+    const currentYear = new Date().getFullYear()
+    const years = []
+    for (let y = currentYear; y <= currentYear + 50; y++) {
+      years.push(y)
+    }
+    return years
+  }
+
   const formatDateTime = (dateString: string) => {
     if (!dateString) return '-'
 
@@ -104,7 +131,6 @@ export default function AdminDashboard() {
     )
   }
 
-  // ฟังก์ชันสำหรับเช็กว่าการจองหมดเวลาใช้งานหรือยัง[cite: 10]
   const isBookingExpired = (bookingDate: string, endTime: string) => {
     if (!bookingDate || !endTime) return false
     try {
@@ -496,8 +522,143 @@ export default function AdminDashboard() {
     }
   }
 
+  // ฟังก์ชันกรองข้อมูลแต่ละแท็บ
+  const getFilteredBorrowRequests = () => {
+    if (showAllBorrow) return borrowRequests
+    if (!borrowYear || !borrowMonthNum) return borrowRequests
+    return borrowRequests.filter((item) => {
+      if (!item.borrow_date) return false
+      const [bYear, bMonth] = item.borrow_date.split('-').map(Number)
+      return bYear === borrowYear && bMonth === borrowMonthNum
+    })
+  }
+
+  const getFilteredBookingsForTable = () => {
+    if (showAllBookings) return bookingRequests
+    if (!bookingYear || !bookingMonthNum) return bookingRequests
+    return bookingRequests.filter((item) => {
+      if (!item.booking_date) return false
+      const [bYear, bMonth] = item.booking_date.split('-').map(Number)
+      return bYear === bookingYear && bMonth === bookingMonthNum
+    })
+  }
+
+  const getFilteredMaintenanceRequests = () => {
+    if (showAllMaint) return maintenanceRequests
+    if (!maintYear || !maintMonthNum) return maintenanceRequests
+    return maintenanceRequests.filter((item) => {
+      if (!item.created_at) return false
+      const datePart = item.created_at.split('T')[0]
+      const [mYear, mMonth] = datePart.split('-').map(Number)
+      return mYear === maintYear && mMonth === maintMonthNum
+    })
+  }
+
+  const getFilteredBookingsForReport = () => {
+    const [yearStr, monthStr] = printMonth.split('-')
+    const targetYear = parseInt(yearStr)
+    const targetMonth = parseInt(monthStr)
+
+    return bookingRequests.filter((item) => {
+      if (!item.booking_date) return false
+      const isApproved = item.status === 'APPROVED' || item.status === 'อนุมัติแล้ว'
+      if (!isApproved) return false
+
+      const [bYear, bMonth] = item.booking_date.split('-').map(Number)
+      return bYear === targetYear && bMonth === targetMonth
+    })
+  }
+
+  const getReportTitle = () => {
+    const [yearStr, monthStr] = printMonth.split('-')
+    const targetYear = parseInt(yearStr)
+    const targetMonth = parseInt(monthStr)
+    const monthNamesThai = [
+      '', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+    ]
+    const thaiYear = targetYear + 543
+    return `รายงานตารางการจองห้องประชุม ประจำเดือน ${monthNamesThai[targetMonth]} พ.ศ. ${thaiYear}`
+  }
+
+  const handleDownloadPDF = () => {
+    const filteredBookings = getFilteredBookingsForReport()
+    const reportTitle = getReportTitle()
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('กรุณาอนุญาตให้เบราว์เซอร์เปิดหน้าต่าง Pop-up')
+      return
+    }
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${reportTitle}</title>
+          <meta charset="utf-8" />
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap');
+            body { font-family: 'Sarabun', sans-serif; padding: 20px; color: #111; line-height: 1.5; }
+            h2 { text-align: center; margin-bottom: 5px; font-weight: 700; color: #111; }
+            p.subtitle { text-align: center; font-size: 13px; color: #333; margin-bottom: 25px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; color: #111; }
+            th, td { border: 1px solid #999; padding: 8px 10px; text-align: left; vertical-align: middle; color: #111; }
+            th { background-color: #e6e6e6 !important; -webkit-print-color-adjust: exact; text-align: center; font-weight: 700; color: #111; }
+            td.center { text-align: center; }
+            @media print {
+              body { padding: 0; }
+              button { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <h2>โรงเรียนอุตรดิตถ์</h2>
+          <h2>${reportTitle}</h2>
+          <p class="subtitle">ระบบบริหารจัดการทรัพยากรโรงเรียน - พิมพ์เมื่อวันที่ ${new Date().toLocaleDateString('th-TH')}</p>
+          
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 8%;">ลำดับ</th>
+                <th style="width: 27%;">ผู้จอง / สังกัด</th>
+                <th style="width: 25%;">ห้องที่จอง</th>
+                <th style="width: 20%;">วันที่ใช้งาน</th>
+                <th style="width: 20%;">ช่วงเวลา</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                filteredBookings.length === 0
+                  ? `<tr><td colspan="5" style="text-align: center; padding: 20px; color: #333;">ไม่พบรายการจองที่อนุมัติแล้วในเดือนนี้</td></tr>`
+                  : filteredBookings.map((item, idx) => `
+                      <tr>
+                        <td class="center">${idx + 1}</td>
+                        <td>
+                          <b style="color: #000;">${item.requester_name}</b><br/>
+                          <span style="font-size: 11px; color: #222;">${item.position} | ${item.requester_department}</span>
+                        </td>
+                        <td>${item.rooms?.name || 'ห้องประชุม'}</td>
+                        <td class="center">${item.booking_date}</td>
+                        <td class="center">${item.start_time?.slice(0, 5)} - ${item.end_time?.slice(0, 5)} น.</td>
+                      </tr>
+                    `).join('')
+              }
+            </tbody>
+          </table>
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+  }
+
   return (
-    <main className="min-h-screen bg-gray-100 p-6 relative">
+    <main className="min-h-screen bg-gray-100 p-6 relative" lang="th">
       {notification && (
         <div className="fixed bottom-6 right-6 z-50 animate-bounce">
           <div className="bg-white border-l-4 border-blue-600 shadow-2xl rounded-xl p-4 max-w-sm flex flex-col gap-2 border border-gray-100">
@@ -522,6 +683,87 @@ export default function AdminDashboard() {
                 className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition"
               >
                 ดูรายการนี้
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPreviewModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-900">📄 ตัวอย่างเอกสารรายงานก่อนพิมพ์ / บันทึก PDF</h3>
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="text-gray-500 hover:text-gray-800 font-bold text-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-8 overflow-y-auto bg-gray-100 flex-1">
+              <div 
+                className="bg-white p-8 shadow-md rounded-lg max-w-3xl mx-auto border border-gray-300 text-gray-900"
+                style={{ fontFamily: "'Sarabun', sans-serif", lineHeight: 1.6 }}
+              >
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-bold text-gray-900" style={{ lineHeight: '1.4' }}>โรงเรียนอุตรดิตถ์</h2>
+                  <h2 className="text-lg font-bold text-gray-900 mt-1" style={{ lineHeight: '1.4' }}>{getReportTitle()}</h2>
+                  <p className="text-xs font-medium text-gray-700 mt-1" style={{ lineHeight: '1.4' }}>ระบบบริหารจัดการทรัพยากรโรงเรียน</p>
+                </div>
+
+                <table className="w-full border-collapse text-sm text-gray-900">
+                  <thead>
+                    <tr className="bg-gray-200 border border-gray-400 text-gray-900 font-bold">
+                      <th className="border border-gray-400 p-2 text-center w-12 text-gray-900">ลำดับ</th>
+                      <th className="border border-gray-400 p-2 text-gray-900">ผู้จอง / สังกัด</th>
+                      <th className="border border-gray-400 p-2 text-gray-900">ห้องที่จอง</th>
+                      <th className="border border-gray-400 p-2 text-center text-gray-900">วันที่ใช้งาน</th>
+                      <th className="border border-gray-400 p-2 text-center text-gray-900">ช่วงเวลา</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {getFilteredBookingsForReport().length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="border border-gray-300 p-6 text-center text-gray-700 font-medium">
+                          ไม่พบรายการจองที่อนุมัติแล้วในเดือนนี้
+                        </td>
+                      </tr>
+                    ) : (
+                      getFilteredBookingsForReport().map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-gray-50">
+                          <td className="border border-gray-300 p-2 text-center text-gray-900 font-medium">{idx + 1}</td>
+                          <td className="border border-gray-300 p-2 text-gray-900" style={{ lineHeight: '1.5' }}>
+                            <div className="font-bold text-gray-900">{item.requester_name}</div>
+                            <div className="text-xs font-medium text-gray-700" style={{ marginTop: '2px' }}>{item.position} | {item.requester_department}</div>
+                          </td>
+                          <td className="border border-gray-300 p-2 text-gray-900 font-medium">{item.rooms?.name || 'ห้องประชุม'}</td>
+                          <td className="border border-gray-300 p-2 text-center text-gray-900 font-medium">{item.booking_date}</td>
+                          <td className="border border-gray-300 p-2 text-center text-gray-900 font-medium">{item.start_time?.slice(0, 5)} - {item.end_time?.slice(0, 5)} น.</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowPreviewModal(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition text-sm font-medium"
+              >
+                ปิดหน้าต่าง
+              </button>
+              <button
+                onClick={() => {
+                  setShowPreviewModal(false)
+                  handleDownloadPDF()
+                }}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition text-sm font-semibold shadow-sm flex items-center gap-2"
+              >
+                🖨️ พิมพ์ / บันทึกเป็น PDF
               </button>
             </div>
           </div>
@@ -599,8 +841,69 @@ export default function AdminDashboard() {
           <>
             {activeTab === 'borrow' && (
               <div>
-                {borrowRequests.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500">ยังไม่มีรายการขอยืมอุปกรณ์</div>
+                <div className="flex flex-col sm:flex-row justify-between items-center bg-blue-50/60 border border-blue-100 p-4 rounded-xl mb-6 gap-3">
+                  <div className="text-sm font-semibold text-blue-900">
+                    📦 กรองรายการขอยืมอุปกรณ์ตามเดือนและปี
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setShowAllBorrow(true)
+                        setBorrowMonthNum(null)
+                        setBorrowYear(null)
+                      }}
+                      className={`text-sm font-semibold px-4 py-1.5 rounded-lg transition shadow-sm ${
+                        showAllBorrow
+                          ? 'bg-blue-700 text-white shadow'
+                          : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      📋 แสดงทั้งหมด
+                    </button>
+
+                    <select
+                      value={borrowMonthNum ?? ''}
+                      onChange={(e) => {
+                        setBorrowMonthNum(e.target.value ? Number(e.target.value) : null)
+                        setShowAllBorrow(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกเดือน</option>
+                      <option value={1}>มกราคม</option>
+                      <option value={2}>กุมภาพันธ์</option>
+                      <option value={3}>มีนาคม</option>
+                      <option value={4}>เมษายน</option>
+                      <option value={5}>พฤษภาคม</option>
+                      <option value={6}>มิถุนายน</option>
+                      <option value={7}>กรกฎาคม</option>
+                      <option value={8}>สิงหาคม</option>
+                      <option value={9}>กันยายน</option>
+                      <option value={10}>ตุลาคม</option>
+                      <option value={11}>พฤศจิกายน</option>
+                      <option value={12}>ธันวาคม</option>
+                    </select>
+
+                    <select
+                      value={borrowYear ?? ''}
+                      onChange={(e) => {
+                        setBorrowYear(e.target.value ? Number(e.target.value) : null)
+                        setShowAllBorrow(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกปี</option>
+                      {generateYearsList().map((y) => (
+                        <option key={y} value={y}>
+                          พ.ศ. {y + 543}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {getFilteredBorrowRequests().length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">ยังไม่มีรายการขอยืมอุปกรณ์ตามเงื่อนไขที่เลือก</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
@@ -617,7 +920,7 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y text-sm text-gray-700">
-                        {borrowRequests.map((item) => (
+                        {getFilteredBorrowRequests().map((item) => (
                           <tr key={item.id} className="hover:bg-gray-50">
                             <td className="p-3 font-mono text-gray-400">#{item.id}</td>
                             <td className="p-3">
@@ -705,8 +1008,76 @@ export default function AdminDashboard() {
 
             {activeTab === 'booking' && (
               <div>
-                {bookingRequests.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500">ยังไม่มีรายการขอจองห้อง</div>
+                <div className="flex flex-col sm:flex-row justify-between items-center bg-blue-50/60 border border-blue-100 p-4 rounded-xl mb-6 gap-3">
+                  <div className="text-sm font-semibold text-blue-900">
+                    📅 กรองหรือพิมพ์รายงานการจองห้อง
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setShowAllBookings(true)
+                        setBookingMonthNum(null)
+                        setBookingYear(null)
+                      }}
+                      className={`text-sm font-semibold px-4 py-1.5 rounded-lg transition shadow-sm ${
+                        showAllBookings
+                          ? 'bg-blue-700 text-white shadow'
+                          : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      📋 แสดงทั้งหมด
+                    </button>
+
+                    <select
+                      value={bookingMonthNum ?? ''}
+                      onChange={(e) => {
+                        setBookingMonthNum(e.target.value ? Number(e.target.value) : null)
+                        setShowAllBookings(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกเดือน</option>
+                      <option value={1}>มกราคม</option>
+                      <option value={2}>กุมภาพันธ์</option>
+                      <option value={3}>มีนาคม</option>
+                      <option value={4}>เมษายน</option>
+                      <option value={5}>พฤษภาคม</option>
+                      <option value={6}>มิถุนายน</option>
+                      <option value={7}>กรกฎาคม</option>
+                      <option value={8}>สิงหาคม</option>
+                      <option value={9}>กันยายน</option>
+                      <option value={10}>ตุลาคม</option>
+                      <option value={11}>พฤศจิกายน</option>
+                      <option value={12}>ธันวาคม</option>
+                    </select>
+
+                    <select
+                      value={bookingYear ?? ''}
+                      onChange={(e) => {
+                        setBookingYear(e.target.value ? Number(e.target.value) : null)
+                        setShowAllBookings(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกปี</option>
+                      {generateYearsList().map((y) => (
+                        <option key={y} value={y}>
+                          พ.ศ. {y + 543}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={() => setShowPreviewModal(true)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      👁️ ดูตัวอย่าง / พิมพ์เอกสาร
+                    </button>
+                  </div>
+                </div>
+
+                {getFilteredBookingsForTable().length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">ไม่พบรายการขอจองห้องตามเงื่อนไขที่เลือก</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
@@ -722,7 +1093,7 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y text-sm text-gray-700">
-                        {bookingRequests.map((item) => {
+                        {getFilteredBookingsForTable().map((item) => {
                           const expired = isBookingExpired(item.booking_date, item.end_time)
 
                           return (
@@ -823,8 +1194,69 @@ export default function AdminDashboard() {
 
             {activeTab === 'maintenance' && (
               <div>
-                {maintenanceRequests.length === 0 ? (
-                  <div className="text-center py-10 text-gray-500">ยังไม่มีรายการแจ้งซ่อม</div>
+                <div className="flex flex-col sm:flex-row justify-between items-center bg-blue-50/60 border border-blue-100 p-4 rounded-xl mb-6 gap-3">
+                  <div className="text-sm font-semibold text-blue-900">
+                    🛠️ กรองรายการแจ้งซ่อมตามเดือนและปี
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setShowAllMaint(true)
+                        setMaintMonthNum(null)
+                        setMaintYear(null)
+                      }}
+                      className={`text-sm font-semibold px-4 py-1.5 rounded-lg transition shadow-sm ${
+                        showAllMaint
+                          ? 'bg-blue-700 text-white shadow'
+                          : 'bg-white text-blue-700 border border-blue-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      📋 แสดงทั้งหมด
+                    </button>
+
+                    <select
+                      value={maintMonthNum ?? ''}
+                      onChange={(e) => {
+                        setMaintMonthNum(e.target.value ? Number(e.target.value) : null)
+                        setShowAllMaint(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกเดือน</option>
+                      <option value={1}>มกราคม</option>
+                      <option value={2}>กุมภาพันธ์</option>
+                      <option value={3}>มีนาคม</option>
+                      <option value={4}>เมษายน</option>
+                      <option value={5}>พฤษภาคม</option>
+                      <option value={6}>มิถุนายน</option>
+                      <option value={7}>กรกฎาคม</option>
+                      <option value={8}>สิงหาคม</option>
+                      <option value={9}>กันยายน</option>
+                      <option value={10}>ตุลาคม</option>
+                      <option value={11}>พฤศจิกายน</option>
+                      <option value={12}>ธันวาคม</option>
+                    </select>
+
+                    <select
+                      value={maintYear ?? ''}
+                      onChange={(e) => {
+                        setMaintYear(e.target.value ? Number(e.target.value) : null)
+                        setShowAllMaint(false)
+                      }}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white text-gray-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
+                    >
+                      <option value="" disabled>โปรดเลือกปี</option>
+                      {generateYearsList().map((y) => (
+                        <option key={y} value={y}>
+                          พ.ศ. {y + 543}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {getFilteredMaintenanceRequests().length === 0 ? (
+                  <div className="text-center py-10 text-gray-500">ยังไม่มีรายการแจ้งซ่อมตามเงื่อนไขที่เลือก</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
@@ -841,7 +1273,7 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y text-sm text-gray-700">
-                        {maintenanceRequests.map((item) => (
+                        {getFilteredMaintenanceRequests().map((item) => (
                           <tr key={item.id} className="hover:bg-gray-50">
                             <td className="p-3 font-mono text-gray-400">#{item.id}</td>
                             <td className="p-3">

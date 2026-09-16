@@ -18,6 +18,9 @@ interface CalendarEvent {
     itemName: string
     quantity?: number
     timeInfo: string
+    requesterName: string     // เพิ่มฟิลด์ชื่อผู้จอง
+    department?: string       // สังกัด/กลุ่มสาระ (ถ้ามี)
+    purpose?: string          // วัตถุประสงค์ (ถ้ามี)
   }
 }
 
@@ -33,9 +36,10 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
       let combinedEvents: CalendarEvent[] = []
 
       if (filterType === 'ALL' || filterType === 'BOOKING') {
+        // ดึงฟิลด์ requester_name, requester_department, purpose เพิ่มเติมจากตารางจองห้อง
         const { data: bookings, error: bookingErr } = await supabase
           .from('booking_requests')
-          .select('id, booking_date, start_time, end_time, status, room_id')
+          .select('id, booking_date, start_time, end_time, status, room_id, requester_name, requester_department, purpose')
           .eq('status', 'APPROVED')
 
         if (!bookingErr && bookings) {
@@ -57,6 +61,9 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
               details: {
                 itemName: roomName,
                 timeInfo: `เวลา ${startTimeStr} - ${endTimeStr} น.`,
+                requesterName: b.requester_name || 'ไม่ระบุชื่อ',
+                department: b.requester_department,
+                purpose: b.purpose,
               },
             }
           })
@@ -65,9 +72,10 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
       }
 
       if (filterType === 'ALL' || filterType === 'BORROW') {
+        // ดึงฟิลด์ requester_name, requester_department, purpose เพิ่มเติมจากตารางยืมอุปกรณ์
         const { data: borrows, error: borrowErr } = await supabase
           .from('borrow_requests')
-          .select('id, borrow_date, return_date, quantity, status, resource_id')
+          .select('id, borrow_date, return_date, quantity, status, resource_id, requester_name, requester_department, purpose')
           .eq('status', 'APPROVED')
 
         if (!borrowErr && borrows) {
@@ -97,6 +105,9 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
                 timeInfo: isSameDay
                   ? `ยืมวันที่ ${startDate} (รับ 08:30 น. - คืนภายใน 16:00 น.)`
                   : `ยืมตั้งแต่วันที่ ${startDate} ถึง ${endDate} (ต้องคืนภายในเวลา 16:00 น. ของวันที่ ${endDate})`,
+                requesterName: b.requester_name || 'ไม่ระบุชื่อ',
+                department: b.requester_department,
+                purpose: b.purpose,
               },
             }
           })
@@ -256,7 +267,7 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
         ))}
       </div>
 
-      {/* Modal สรุปข้อมูลเมื่อคลิกแถบปฏิทิน */}
+      {/* Modal แสดงข้อมูลเพิ่มเติมพร้อมชื่อผู้จอง */}
       {selectedEvent && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl max-w-sm w-full p-5 shadow-lg border border-gray-100">
@@ -269,17 +280,41 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
                 ✕
               </button>
             </div>
-            <div className="space-y-2 text-sm text-gray-600">
+            
+            <div className="space-y-2 text-sm text-gray-600 border-t border-b border-gray-100 py-3 my-2">
               <p>
                 <span className="font-semibold text-gray-700">ประเภท:</span>{' '}
                 {selectedEvent.type === 'BOOKING' ? 'จองห้องประชุม' : 'ยืมอุปกรณ์'}
               </p>
               <p>
+                <span className="font-semibold text-gray-700">ผู้จอง:</span>{' '}
+                {selectedEvent.details?.requesterName}
+              </p>
+              {selectedEvent.details?.department && (
+                <p>
+                  <span className="font-semibold text-gray-700">สังกัด:</span>{' '}
+                  {selectedEvent.details.department}
+                </p>
+              )}
+              {selectedEvent.details?.quantity && (
+                <p>
+                  <span className="font-semibold text-gray-700">จำนวน:</span>{' '}
+                  {selectedEvent.details.quantity} ชิ้น
+                </p>
+              )}
+              <p>
                 <span className="font-semibold text-gray-700">ช่วงเวลา:</span>{' '}
                 {selectedEvent.details?.timeInfo}
               </p>
+              {selectedEvent.details?.purpose && (
+                <p>
+                  <span className="font-semibold text-gray-700">วัตถุประสงค์:</span>{' '}
+                  {selectedEvent.details.purpose}
+                </p>
+              )}
             </div>
-            <div className="mt-5 flex justify-end">
+
+            <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setSelectedEvent(null)}
                 className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg"
