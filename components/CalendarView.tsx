@@ -10,8 +10,8 @@ interface CalendarViewProps {
 interface CalendarEvent {
   id: string
   title: string
-  startDate: string // YYYY-MM-DD
-  endDate: string // YYYY-MM-DD
+  startDate: string
+  endDate: string
   timeText: string
   type: 'BOOKING' | 'BORROW'
   details?: {
@@ -32,7 +32,6 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
       setLoading(true)
       let combinedEvents: CalendarEvent[] = []
 
-      // 1. ดึงข้อมูลการจองห้อง
       if (filterType === 'ALL' || filterType === 'BOOKING') {
         const { data: bookings, error: bookingErr } = await supabase
           .from('booking_requests')
@@ -65,7 +64,6 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
         }
       }
 
-      // 2. ดึงข้อมูลการยืมอุปกรณ์ (ตั้งเงื่อนไขคืนภายใน 16:00 น. ของวัน return_date)
       if (filterType === 'ALL' || filterType === 'BORROW') {
         const { data: borrows, error: borrowErr } = await supabase
           .from('borrow_requests')
@@ -139,13 +137,12 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
   ]
 
-  // แบ่งสัปดาห์ออกเป็น Array ของ 7 วันสำหรับสร้าง Grid
   const calendarWeeks = useMemo(() => {
     const firstDay = new Date(year, month, 1)
     const lastDay = new Date(year, month + 1, 0)
 
     const startDate = new Date(firstDay)
-    startDate.setDate(startDate.getDate() - firstDay.getDay()) // ย้อนกลับไปวันอาทิตย์แรกของสัปดาห์
+    startDate.setDate(startDate.getDate() - firstDay.getDay())
 
     const weeks: { date: Date; dateStr: string; isCurrentMonth: boolean }[][] = []
     let currentWeek: { date: Date; dateStr: string; isCurrentMonth: boolean }[] = []
@@ -212,83 +209,51 @@ export default function CalendarView({ filterType = 'ALL' }: CalendarViewProps) 
         <div className="text-blue-500 py-2">ส</div>
       </div>
 
-      {/* ตารางแสดงผลแบบแบ่งสัปดาห์ */}
-      <div className="border-t border-l border-gray-200">
-        {calendarWeeks.map((week, weekIndex) => {
-          const weekStart = week[0].dateStr
-          const weekEnd = week[6].dateStr
+      {/* ตารางแสดงผลปฏิทินแบบปลอดภัยไม่ล้นกรอบ */}
+      <div className="border-t border-l border-gray-200 rounded-lg overflow-hidden">
+        {calendarWeeks.map((week, weekIndex) => (
+          <div key={`week-${weekIndex}`} className="grid grid-cols-7">
+            {week.map((day) => {
+              const dayEvents = events.filter(
+                (e) => day.dateStr >= e.startDate && day.dateStr <= e.endDate
+              )
 
-          // ดึง Event ที่ครอบคลุมช่วงสัปดาห์นี้
-          const weekEvents = events.filter(
-            (e) => e.startDate <= weekEnd && e.endDate >= weekStart
-          )
-
-          return (
-            <div key={`week-${weekIndex}`} className="relative">
-              {/* Layer 1: พื้นหลังตารางวัน 7 ช่อง */}
-              <div className="grid grid-cols-7">
-                {week.map((day) => (
-                  <div
-                    key={day.dateStr}
-                    className={`min-h-[110px] border-r border-b border-gray-200 p-1.5 flex flex-col justify-start ${
-                      day.isCurrentMonth ? 'bg-white' : 'bg-gray-50/50 text-gray-300'
+              return (
+                <div
+                  key={day.dateStr}
+                  className={`min-h-[120px] max-h-[120px] border-r border-b border-gray-200 p-1.5 flex flex-col overflow-hidden ${
+                    day.isCurrentMonth ? 'bg-white' : 'bg-gray-50/50 text-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`text-xs font-semibold mb-1 shrink-0 ${
+                      day.isCurrentMonth ? 'text-gray-700' : 'text-gray-300'
                     }`}
                   >
-                    <span
-                      className={`text-xs font-semibold ${
-                        day.isCurrentMonth ? 'text-gray-700' : 'text-gray-300'
-                      }`}
-                    >
-                      {day.date.getDate()}
-                    </span>
+                    {day.date.getDate()}
+                  </span>
+
+                  <div className="flex-1 overflow-y-auto space-y-1 pr-0.5 custom-scrollbar">
+                    {dayEvents.map((event) => (
+                      <div
+                        key={`${event.id}-${day.dateStr}`}
+                        onClick={() => setSelectedEvent(event)}
+                        className={`px-1.5 py-0.5 text-[10px] font-medium rounded truncate cursor-pointer transition hover:opacity-80 shadow-2xs ${
+                          event.type === 'BOOKING'
+                            ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                            : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                        }`}
+                        title={`${event.title} (${event.timeText})`}
+                      >
+                        {event.title}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-
-              {/* Layer 2: แถบกิจกรรมยาวคร่อมวัน (ซ้อนทับอยู่ด้านบน) */}
-              <div className="absolute top-7 left-0 right-0 grid grid-cols-7 gap-y-1 px-0.5 pointer-events-none">
-                {weekEvents.map((event) => {
-                  const startCol =
-                    event.startDate <= weekStart
-                      ? 1
-                      : week.findIndex((d) => d.dateStr === event.startDate) + 1
-
-                  const endCol =
-                    event.endDate >= weekEnd
-                      ? 8
-                      : week.findIndex((d) => d.dateStr === event.endDate) + 2
-
-                  const isStartOfWeek = event.startDate <= weekStart
-                  const isEndOfWeek = event.endDate >= weekEnd
-
-                  return (
-                    <div
-                      key={`${event.id}-${weekIndex}`}
-                      onClick={() => setSelectedEvent(event)}
-                      className={`pointer-events-auto my-0.5 px-2 py-1 text-[11px] font-medium flex items-center shadow-sm overflow-hidden whitespace-nowrap cursor-pointer transition hover:opacity-90 ${
-                        event.type === 'BOOKING'
-                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
-                          : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                      } ${isStartOfWeek ? 'rounded-l-none border-l-0' : 'rounded-l-md'} ${
-                        isEndOfWeek ? 'rounded-r-none border-r-0' : 'rounded-r-md'
-                      }`}
-                      style={{
-                        gridColumnStart: startCol,
-                        gridColumnEnd: endCol,
-                      }}
-                      title={`${event.title} (${event.timeText})`}
-                    >
-                      <span className="font-semibold truncate">{event.title}</span>
-                      <span className="ml-1.5 text-[9px] opacity-75 truncate hidden sm:inline">
-                        ({event.timeText})
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
 
       {/* Modal สรุปข้อมูลเมื่อคลิกแถบปฏิทิน */}

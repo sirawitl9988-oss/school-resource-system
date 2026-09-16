@@ -11,16 +11,27 @@ interface Room {
   building?: string
 }
 
+interface BookingItem {
+  room_id: string
+  selected_dates: string[] // เก็บเป็น Array ของวันที่เลือก เช่น ['2026-09-21', '2026-09-23', '2026-09-26']
+  start_time: string
+  end_time: string
+}
+
 interface BookingForm {
   requester_name: string
   requester_email: string
   position: string
   requester_department: string
-  room_id: string
-  booking_date: string
-  start_time: string
-  end_time: string
   purpose: string
+  items: BookingItem[]
+}
+
+const INITIAL_ITEM: BookingItem = {
+  room_id: '',
+  selected_dates: [],
+  start_time: '',
+  end_time: '',
 }
 
 const INITIAL_FORM_STATE: BookingForm = {
@@ -28,11 +39,8 @@ const INITIAL_FORM_STATE: BookingForm = {
   requester_email: '',
   position: 'ครู',
   requester_department: '',
-  room_id: '',
-  booking_date: '',
-  start_time: '',
-  end_time: '',
   purpose: '',
+  items: [INITIAL_ITEM],
 }
 
 export default function BookingPage() {
@@ -40,16 +48,13 @@ export default function BookingPage() {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState<BookingForm>(INITIAL_FORM_STATE)
 
-  // State สำหรับควบคุมการเปิด/ปิด ป๊อปอัปเลือกเวลา
-  const [showStartPicker, setShowStartPicker] = useState(false)
-  const [showEndPicker, setShowEndPicker] = useState(false)
-  const [selectedStartHour, setSelectedStartHour] = useState('08')
-  const [selectedStartMin, setSelectedStartMin] = useState('00')
-  const [selectedEndHour, setSelectedEndHour] = useState('16')
-  const [selectedEndMin, setSelectedEndMin] = useState('00')
+  // ควบคุมการเปิด/ปิดป๊อปอัป
+  const [activePicker, setActivePicker] = useState<{ index: number; type: 'start_time' | 'end_time' | 'date_picker' } | null>(null)
+  const pickerRef = useRef<HTMLDivElement>(null)
 
-  const startPickerRef = useRef<HTMLDivElement>(null)
-  const endPickerRef = useRef<HTMLDivElement>(null)
+  // State สำหรับจัดการหน้าปฏิทิน (Month/Year View)
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth())
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
 
   useEffect(() => {
     const fetchRooms = async () => {
@@ -62,155 +67,299 @@ export default function BookingPage() {
     }
     fetchRooms()
 
-    // ปิดป๊อปอัปเวลาเมื่อคลิกพื้นที่นอกกล่อง
     const handleClickOutside = (event: MouseEvent) => {
-      if (startPickerRef.current && !startPickerRef.current.contains(event.target as Node)) {
-        setShowStartPicker(false)
-      }
-      if (endPickerRef.current && !endPickerRef.current.contains(event.target as Node)) {
-        setShowEndPicker(false)
+      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
+        setActivePicker(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const handleChange = (
+  const handleGeneralChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target
     setForm((prev) => ({ ...prev, [name]: value }))
   }
 
-  const handleSetStartTime = (hour: string, min: string) => {
-    const timeStr = `${hour}:${min}`
-    setSelectedStartHour(hour)
-    setSelectedStartMin(min)
-    setForm((prev) => ({ ...prev, start_time: timeStr }))
-    setShowStartPicker(false)
+  const handleItemChange = (index: number, field: keyof BookingItem, value: any) => {
+    const updatedItems = [...form.items]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setForm((prev) => ({ ...prev, items: updatedItems }))
   }
 
-  const handleSetEndTime = (hour: string, min: string) => {
-    const timeStr = `${hour}:${min}`
-    setSelectedEndHour(hour)
-    setSelectedEndMin(min)
-    setForm((prev) => ({ ...prev, end_time: timeStr }))
-    setShowEndPicker(false)
+  const handleAddItem = () => {
+    setForm((prev) => ({
+      ...prev,
+      items: [...prev.items, { ...INITIAL_ITEM }],
+    }))
   }
 
-  const formatTimeText = (timeStr: string) => {
-    if (!timeStr) return ''
-    return timeStr.replace(':', '.')
+  const handleRemoveItem = (index: number) => {
+    if (form.items.length === 1) {
+      alert('ต้องมีรายการห้องอย่างน้อย 1 ห้อง')
+      return
+    }
+    const updatedItems = form.items.filter((_, i) => i !== index)
+    setForm((prev) => ({ ...prev, items: updatedItems }))
+  }
+
+  const handleSetTime = (index: number, type: 'start_time' | 'end_time', hour: string, min: string) => {
+    const timeStr = `${hour}:${min}`
+    const updatedItems = [...form.items]
+    if (type === 'start_time') {
+      updatedItems[index].start_time = timeStr
+    } else {
+      updatedItems[index].end_time = timeStr
+    }
+    setForm((prev) => ({ ...prev, items: updatedItems }))
+    setActivePicker(null)
+  }
+
+  // ฟังก์ชันกดเลือก/ยกเลิกเลือกวันแบบอิสระทีละวัน
+  const handleToggleDate = (index: number, dateStr: string) => {
+    const updatedItems = [...form.items]
+    let currentDates = [...updatedItems[index].selected_dates]
+
+    if (currentDates.includes(dateStr)) {
+      // ถ้าเลือกไว้แล้ว ให้เอาออก (Unselect)
+      currentDates = currentDates.filter((d) => d !== dateStr)
+    } else {
+      // ถ้ายังไม่เลือก ให้เพิ่มเข้าไป แล้วเรียงลำดับจากน้อยไปมากเสมอ
+      currentDates.push(dateStr)
+      currentDates.sort()
+    }
+
+    updatedItems[index].selected_dates = currentDates
+    setForm((prev) => ({ ...prev, items: updatedItems }))
+  }
+
+  const formatDateDisplay = (dateStr: string) => {
+    if (!dateStr) return ''
+    const [y, m, d] = dateStr.split('-')
+    return `${d}/${m}/${y}`
+  }
+
+  const getSummaryDateText = (dates: string[]) => {
+    if (!dates || dates.length === 0) return 'เลือกวันที่ต้องการใช้งาน (กดเลือกได้หลายวัน)'
+    if (dates.length === 1) return formatDateDisplay(dates[0])
+    
+    // เรียงจากน้อยไปมาก วันแรกถึงวันสุดท้าย
+    const sorted = [...dates].sort()
+    return `${formatDateDisplay(sorted[0])} ถึง ${formatDateDisplay(sorted[sorted.length - 1])} (${dates.length} วัน)`
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!form.room_id) {
-      alert('กรุณาเลือกห้องที่ต้องการจอง')
-      return
-    }
-
-    if (!form.start_time || !form.end_time) {
-      alert('กรุณาเลือกเวลาเริ่มและเวลาสิ้นสุด')
-      return
-    }
-
-    if (form.start_time >= form.end_time) {
-      alert('เวลาสิ้นสุดต้องมาหลังเวลาเริ่มใช้งาน')
-      return
+    for (let i = 0; i < form.items.length; i++) {
+      const item = form.items[i]
+      if (!item.room_id) {
+        alert(`กรุณาเลือกห้องในรายการที่ ${i + 1}`)
+        return
+      }
+      if (!item.selected_dates || item.selected_dates.length === 0) {
+        alert(`กรุณาเลือกอย่างน้อย 1 วัน ในรายการที่ ${i + 1}`)
+        return
+      }
+      if (!item.start_time || !item.end_time) {
+        alert(`กรุณากรอกเวลาเริ่มและเวลาสิ้นสุดให้ครบถ้วนในรายการที่ ${i + 1}`)
+        return
+      }
+      if (item.start_time >= item.end_time) {
+        alert(`เวลาสิ้นสุดต้องมาหลังเวลาเริ่มใช้งาน ในรายการที่ ${i + 1}`)
+        return
+      }
     }
 
     setLoading(true)
 
     try {
-      const selectedRoomId = Number(form.room_id)
+      for (let i = 0; i < form.items.length; i++) {
+        const item = form.items[i]
+        const selectedRoomId = Number(item.room_id)
 
-      // 1. เช็กการจองซ้ำ
-      const { data: existingBookings, error: checkError } = await supabase
-        .from('booking_requests')
-        .select('*')
-        .eq('room_id', selectedRoomId)
-        .eq('booking_date', form.booking_date)
-        .in('status', ['PENDING', 'APPROVED'])
-        .lt('start_time', form.end_time)
-        .gt('end_time', form.start_time)
+        // ตรวจสอบการจองซ้ำในทุกวันที่ผู้ใช้เลือกไว้
+        for (const bookingDate of item.selected_dates) {
+          const { data: existingBookings, error: checkError } = await supabase
+            .from('booking_requests')
+            .select('*')
+            .eq('room_id', selectedRoomId)
+            .eq('booking_date', bookingDate)
+            .in('status', ['PENDING', 'APPROVED'])
+            .lt('start_time', item.end_time)
+            .gt('end_time', item.start_time)
 
-      if (checkError) {
-        alert('เกิดข้อผิดพลาดในการตรวจสอบสถานะห้อง: ' + checkError.message)
-        setLoading(false)
-        return
-      }
+          if (checkError) {
+            throw new Error('เกิดข้อผิดพลาดในการตรวจสอบสถานะห้อง: ' + checkError.message)
+          }
 
-      if (existingBookings && existingBookings.length > 0) {
-        const conflict = existingBookings[0]
-        const startTimeDisplay = formatTimeText(conflict.start_time)
-        const endTimeDisplay = formatTimeText(conflict.end_time)
-
-        alert(
-          `❌ ไม่สามารถจองได้! ห้องนี้มีการขอจองในช่วงเวลานี้แล้ว (${startTimeDisplay} - ${endTimeDisplay} น.)`
-        )
-        setLoading(false)
-        return
-      }
-
-      // 2. บันทึกข้อมูลคำขอจองลง Supabase
-      const payload = {
-        requester_name: form.requester_name.trim(),
-        requester_email: form.requester_email.trim(),
-        position: form.position,
-        student_id: null,
-        requester_department: form.requester_department.trim(),
-        room_id: selectedRoomId,
-        booking_date: form.booking_date,
-        start_time: form.start_time,
-        end_time: form.end_time,
-        purpose: form.purpose ? form.purpose.trim() : null,
-        status: 'PENDING',
-      }
-
-      const { data, error: insertError } = await supabase
-        .from('booking_requests')
-        .insert([payload])
-        .select()
-
-      if (insertError) throw insertError
-
-      if (data && data.length > 0) {
-        // 3. ส่งอีเมลแจ้งเตือน Admin
-        const roomObj = rooms.find((r) => r.id === selectedRoomId)
-        const roomName = roomObj ? roomObj.name : `ห้องรหัส ${selectedRoomId}`
-
-        try {
-          await fetch('/api/send-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              title: `คำขอจองห้องใหม่: ${roomName}`,
-              requesterName: `${form.requester_name} (${form.position})`,
-              requesterEmail: form.requester_email,
-              department: form.requester_department,
-              details: `ห้อง: ${roomName} | วันที่: ${form.booking_date} | เวลา: ${form.start_time} - ${form.end_time} น.`,
-            }),
-          })
-        } catch (emailErr) {
-          console.error('Failed to send email notification:', emailErr)
+          if (existingBookings && existingBookings.length > 0) {
+            const roomObj = rooms.find((r) => r.id === selectedRoomId)
+            const roomName = roomObj ? roomObj.name : `ห้องรหัส ${selectedRoomId}`
+            throw new Error(
+              `❌ ไม่สามารถจอง "${roomName}" ได้! เนื่องจากติดช่วงเวลาจองซ้ำในวันที่ ${bookingDate}`
+            )
+          }
         }
 
-        alert('✅ ส่งคำขอจองห้องเรียบร้อยแล้ว! รอการอนุมัติจาก Admin')
-        setForm(INITIAL_FORM_STATE)
+        // บันทึกข้อมูลลงฐานข้อมูลแยกตามรายวัน
+        for (const bookingDate of item.selected_dates) {
+          const payload = {
+            requester_name: form.requester_name.trim(),
+            requester_email: form.requester_email.trim(),
+            position: form.position,
+            student_id: null,
+            requester_department: form.requester_department.trim(),
+            room_id: selectedRoomId,
+            booking_date: bookingDate,
+            start_time: item.start_time,
+            end_time: item.end_time,
+            purpose: form.purpose ? form.purpose.trim() : null,
+            status: 'PENDING',
+          }
+
+          const { data, error: insertError } = await supabase
+            .from('booking_requests')
+            .insert([payload])
+            .select()
+
+          if (insertError) throw insertError
+
+          if (data && data.length > 0) {
+            const roomObj = rooms.find((r) => r.id === selectedRoomId)
+            const roomName = roomObj ? roomObj.name : `ห้องรหัส ${selectedRoomId}`
+
+            try {
+              await fetch('/api/send-email', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: `คำขอจองห้องใหม่: ${roomName} (${bookingDate})`,
+                  requesterName: `${form.requester_name} (${form.position})`,
+                  requesterEmail: form.requester_email,
+                  department: form.requester_department,
+                  details: `ห้อง: ${roomName} | วันที่: ${bookingDate} | เวลา: ${item.start_time} - ${item.end_time} น.`,
+                }),
+              })
+            } catch (emailErr) {
+              console.error('Failed to send email notification:', emailErr)
+            }
+          }
+        }
       }
+
+      alert('✅ ส่งคำขอจองห้องเรียบร้อยแล้ว! รอการอนุมัติจาก Admin')
+      setForm(INITIAL_FORM_STATE)
     } catch (err: any) {
-      console.error('Insert Error:', err)
-      alert('เกิดข้อผิดพลาดในการส่งคำขอ: ' + (err.message || 'Error'))
+      console.error('Booking Error:', err)
+      alert(err.message || 'เกิดข้อผิดพลาดในการส่งคำขอ')
     } finally {
       setLoading(false)
     }
   }
 
-  // สร้างรายการชั่วโมง (00 ถึง 23) และนาที (00, 15, 30, 45 หรือทีละนาที)
   const hoursList = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
   const minutesList = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']
+
+  const monthNames = [
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
+  ]
+
+  const renderCustomCalendar = (index: number) => {
+    const item = form.items[index]
+    const firstDay = new Date(currentYear, currentMonth, 1).getDay()
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+
+    const days = []
+    for (let i = 0; i < firstDay; i++) {
+      days.push(<div key={`empty-${i}`} className="h-8 w-8"></div>)
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const monthStr = String(currentMonth + 1).padStart(2, '0')
+      const dayStr = String(d).padStart(2, '0')
+      const dateStr = `${currentYear}-${monthStr}-${dayStr}`
+
+      const isSelected = item.selected_dates.includes(dateStr)
+
+      days.push(
+        <button
+          type="button"
+          key={dateStr}
+          onClick={() => handleToggleDate(index, dateStr)}
+          className={`h-8 w-8 text-xs rounded-lg flex items-center justify-center transition font-medium ${
+            isSelected
+              ? 'bg-pink-600 text-white font-bold shadow-md shadow-pink-500/30'
+              : 'hover:bg-gray-100 text-gray-800'
+          }`}
+        >
+          {d}
+        </button>
+      )
+    }
+
+    return (
+      <div className="absolute z-50 mt-1 bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 w-72">
+        <div className="flex justify-between items-center mb-3">
+          <button
+            type="button"
+            onClick={() => {
+              if (currentMonth === 0) {
+                setCurrentMonth(11)
+                setCurrentYear(currentYear - 1)
+              } else {
+                setCurrentMonth(currentMonth - 1)
+              }
+            }}
+            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 text-xs font-bold"
+          >
+            ◀
+          </button>
+          <span className="text-sm font-bold text-gray-800">
+            {monthNames[currentMonth]} {currentYear + 543}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              if (currentMonth === 11) {
+                setCurrentMonth(0)
+                setCurrentYear(currentYear + 1)
+              } else {
+                setCurrentMonth(currentMonth + 1)
+              }
+            }}
+            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-600 text-xs font-bold"
+          >
+            ▶
+          </button>
+        </div>
+
+        <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-gray-400 mb-2">
+          <span>อา</span><span>จ</span><span>อ</span><span>พ</span><span>พฤ</span><span>ศ</span><span>ส</span>
+        </div>
+
+        <div className="grid grid-cols-7 gap-1 justify-items-center">
+          {days}
+        </div>
+
+        <div className="mt-3 pt-2 border-t border-gray-100 flex justify-between items-center text-xs">
+          <span className="text-gray-500">
+            เลือกแล้ว {item.selected_dates.length} วัน
+          </span>
+          <button
+            type="button"
+            onClick={() => setActivePicker(null)}
+            className="text-pink-600 font-bold hover:underline"
+          >
+            เสร็จสิ้น
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <main className="min-h-screen bg-gray-50 py-8 px-4">
@@ -232,7 +381,7 @@ export default function BookingPage() {
                 แบบฟอร์มขอจองใช้งานห้อง (สำหรับครู/บุคลากร)
               </h1>
               <p className="text-xs text-gray-500">
-                กรอกข้อมูลเพื่อส่งคำขอจองห้องประชุม หรือห้องเรียนปฏิบัติการ
+                คลิกเลือกวันที่ต้องการใช้งานอิสระได้หลายวันในช่องเดียว และเพิ่มหลายห้องพร้อมกันได้
               </p>
             </div>
           </div>
@@ -250,7 +399,7 @@ export default function BookingPage() {
                   name="requester_name"
                   required
                   value={form.requester_name}
-                  onChange={handleChange}
+                  onChange={handleGeneralChange}
                   placeholder="ครูสมชาย ใจดี"
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
@@ -265,7 +414,7 @@ export default function BookingPage() {
                   name="requester_email"
                   required
                   value={form.requester_email}
-                  onChange={handleChange}
+                  onChange={handleGeneralChange}
                   placeholder="somchai@school.ac.th"
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
@@ -280,7 +429,7 @@ export default function BookingPage() {
                 <select
                   name="position"
                   value={form.position}
-                  onChange={handleChange}
+                  onChange={handleGeneralChange}
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
                 >
                   <option value="ครู">ครู / อาจารย์</option>
@@ -299,7 +448,7 @@ export default function BookingPage() {
                   name="requester_department"
                   required
                   value={form.requester_department}
-                  onChange={handleChange}
+                  onChange={handleGeneralChange}
                   placeholder="กลุ่มสาระการเรียนรู้วิทยาศาสตร์และเทคโนโลยี"
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
                 />
@@ -308,155 +457,230 @@ export default function BookingPage() {
 
             <hr className="my-4 border-gray-100" />
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                เลือกห้องที่ต้องการจอง *
-              </label>
-              <select
-                name="room_id"
-                required
-                value={form.room_id}
-                onChange={handleChange}
-                className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
-              >
-                <option value="" className="text-gray-500">
-                  -- เลือกห้อง --
-                </option>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id} className="text-gray-900">
-                    {room.name} {room.building ? `(${room.building})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  วันที่ใช้งาน *
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <label className="text-base font-bold text-gray-800">
+                  รายการห้องที่ต้องการจอง *
                 </label>
-                <input
-                  type="date"
-                  name="booking_date"
-                  required
-                  value={form.booking_date}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
-                />
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="px-3 py-1.5 bg-pink-50 text-pink-600 hover:bg-pink-100 border border-pink-200 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-sm"
+                >
+                  + เพิ่มห้องที่จะจอง
+                </button>
               </div>
 
-              {/* ช่องเลือกเวลาเริ่ม (Custom Time Picker 24 Hrs) */}
-              <div className="relative" ref={startPickerRef}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  เวลาเริ่ม * (00:00 - 23:59)
-                </label>
-                <div
-                  onClick={() => setShowStartPicker(!showStartPicker)}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white cursor-pointer flex justify-between items-center focus:ring-2 focus:ring-pink-500 transition"
-                >
-                  <span>{form.start_time ? `${form.start_time} น.` : 'เลือกเวลาเริ่ม'}</span>
-                  <span className="text-gray-400">🕒</span>
-                </div>
+              {form.items.map((item, index) => {
+                const currentStartHour = item.start_time ? item.start_time.split(':')[0] : '08'
+                const currentStartMin = item.start_time ? item.start_time.split(':')[1] : '00'
+                const currentEndHour = item.end_time ? item.end_time.split(':')[0] : '16'
+                const currentEndMin = item.end_time ? item.end_time.split(':')[1] : '00'
 
-                {showStartPicker && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl p-3 flex gap-2">
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-gray-500 mb-1 text-center">ชั่วโมง</div>
-                      <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                        {hoursList.map((h) => (
-                          <div
-                            key={h}
-                            onClick={() => handleSetStartTime(h, selectedStartMin)}
-                            className={`p-1.5 text-center text-sm rounded cursor-pointer transition ${
-                              selectedStartHour === h ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {h}
-                          </div>
-                        ))}
-                      </div>
+                return (
+                  <div
+                    key={index}
+                    className="p-4 bg-gray-50 border border-gray-200 rounded-xl space-y-3 relative transition"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-gray-600 bg-white px-2 py-1 border border-gray-200 rounded-md shadow-2xs">
+                        ห้องที่ {index + 1}
+                      </span>
+                      {form.items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(index)}
+                          className="text-xs text-red-500 hover:text-red-700 font-medium transition"
+                        >
+                          ลบรายการนี้ ✕
+                        </button>
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-gray-500 mb-1 text-center">นาที</div>
-                      <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                        {minutesList.map((m) => (
-                          <div
-                            key={m}
-                            onClick={() => handleSetStartTime(selectedStartHour, m)}
-                            className={`p-1.5 text-center text-sm rounded cursor-pointer transition ${
-                              selectedStartMin === m ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {m}
-                          </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        เลือกห้อง *
+                      </label>
+                      <select
+                        required
+                        value={item.room_id}
+                        onChange={(e) => handleItemChange(index, 'room_id', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white focus:ring-2 focus:ring-pink-500 outline-none transition"
+                      >
+                        <option value="" className="text-gray-500">
+                          -- เลือกห้อง --
+                        </option>
+                        {rooms.map((room) => (
+                          <option key={room.id} value={room.id} className="text-gray-900">
+                            {room.name} {room.building ? `(${room.building})` : ''}
+                          </option>
                         ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {/* ช่องเลือกวันที่แบบอิสระ */}
+                      <div className="relative">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          วันที่ใช้งาน * (คลิกเลือกหลายวันอิสระ)
+                        </label>
+                        <div
+                          onClick={() =>
+                            setActivePicker(
+                              activePicker?.index === index && activePicker?.type === 'date_picker'
+                                ? null
+                                : { index, type: 'date_picker' }
+                            )
+                          }
+                          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white cursor-pointer flex justify-between items-center focus:ring-2 focus:ring-pink-500 transition truncate"
+                        >
+                          <span className="truncate">{getSummaryDateText(item.selected_dates)}</span>
+                          <span className="text-gray-400 shrink-0 ml-2">📅</span>
+                        </div>
+
+                        {activePicker?.index === index && activePicker?.type === 'date_picker' && (
+                          <div ref={pickerRef}>
+                            {renderCustomCalendar(index)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* เวลาเริ่ม */}
+                      <div className="relative">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          เวลาเริ่ม *
+                        </label>
+                        <div
+                          onClick={() =>
+                            setActivePicker(
+                              activePicker?.index === index && activePicker?.type === 'start_time'
+                                ? null
+                                : { index, type: 'start_time' }
+                            )
+                          }
+                          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white cursor-pointer flex justify-between items-center focus:ring-2 focus:ring-pink-500 transition"
+                        >
+                          <span>{item.start_time ? `${item.start_time} น.` : 'เลือกเวลาเริ่ม'}</span>
+                          <span className="text-gray-400">🕒</span>
+                        </div>
+
+                        {activePicker?.index === index && activePicker?.type === 'start_time' && (
+                          <div
+                            ref={pickerRef}
+                            className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl p-3 flex gap-2"
+                          >
+                            <div className="flex-1">
+                              <div className="text-[10px] font-semibold text-gray-500 mb-1 text-center">ชม.</div>
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {hoursList.map((h) => (
+                                  <div
+                                    key={h}
+                                    onClick={() => handleSetTime(index, 'start_time', h, currentStartMin)}
+                                    className={`p-1 text-center text-xs rounded cursor-pointer transition ${
+                                      currentStartHour === h ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {h}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-[10px] font-semibold text-gray-500 mb-1 text-center">นาที</div>
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {minutesList.map((m) => (
+                                  <div
+                                    key={m}
+                                    onClick={() => handleSetTime(index, 'start_time', currentStartHour, m)}
+                                    className={`p-1 text-center text-xs rounded cursor-pointer transition ${
+                                      currentStartMin === m ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {m}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* เวลาสิ้นสุด */}
+                      <div className="relative">
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          เวลาสิ้นสุด *
+                        </label>
+                        <div
+                          onClick={() =>
+                            setActivePicker(
+                              activePicker?.index === index && activePicker?.type === 'end_time'
+                                ? null
+                                : { index, type: 'end_time' }
+                            )
+                          }
+                          className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white cursor-pointer flex justify-between items-center focus:ring-2 focus:ring-pink-500 transition"
+                        >
+                          <span>{item.end_time ? `${item.end_time} น.` : 'เลือกเวลาสิ้นสุด'}</span>
+                          <span className="text-gray-400">🕒</span>
+                        </div>
+
+                        {activePicker?.index === index && activePicker?.type === 'end_time' && (
+                          <div
+                            ref={pickerRef}
+                            className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl p-3 flex gap-2"
+                          >
+                            <div className="flex-1">
+                              <div className="text-[10px] font-semibold text-gray-500 mb-1 text-center">ชม.</div>
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {hoursList.map((h) => (
+                                  <div
+                                    key={h}
+                                    onClick={() => handleSetTime(index, 'end_time', h, currentEndMin)}
+                                    className={`p-1 text-center text-xs rounded cursor-pointer transition ${
+                                      currentEndHour === h ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {h}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="flex-1">
+                              <div className="text-[10px] font-semibold text-gray-500 mb-1 text-center">นาที</div>
+                              <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                                {minutesList.map((m) => (
+                                  <div
+                                    key={m}
+                                    onClick={() => handleSetTime(index, 'end_time', currentEndHour, m)}
+                                    className={`p-1 text-center text-xs rounded cursor-pointer transition ${
+                                      currentEndMin === m ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {m}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
-
-              {/* ช่องเลือกเวลาสิ้นสุด (Custom Time Picker 24 Hrs) */}
-              <div className="relative" ref={endPickerRef}>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  เวลาสิ้นสุด * (00:00 - 23:59)
-                </label>
-                <div
-                  onClick={() => setShowEndPicker(!showEndPicker)}
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white cursor-pointer flex justify-between items-center focus:ring-2 focus:ring-pink-500 transition"
-                >
-                  <span>{form.end_time ? `${form.end_time} น.` : 'เลือกเวลาสิ้นสุด'}</span>
-                  <span className="text-gray-400">🕒</span>
-                </div>
-
-                {showEndPicker && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-xl p-3 flex gap-2">
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-gray-500 mb-1 text-center">ชั่วโมง</div>
-                      <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                        {hoursList.map((h) => (
-                          <div
-                            key={h}
-                            onClick={() => handleSetEndTime(h, selectedEndMin)}
-                            className={`p-1.5 text-center text-sm rounded cursor-pointer transition ${
-                              selectedEndHour === h ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {h}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-gray-500 mb-1 text-center">นาที</div>
-                      <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
-                        {minutesList.map((m) => (
-                          <div
-                            key={m}
-                            onClick={() => handleSetEndTime(selectedEndHour, m)}
-                            className={`p-1.5 text-center text-sm rounded cursor-pointer transition ${
-                              selectedEndMin === m ? 'bg-pink-600 text-white font-bold' : 'hover:bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {m}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                )
+              })}
             </div>
+
+            <hr className="my-4 border-gray-100" />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                วัตถุประสงค์การใช้งาน
+                วัตถุประสงค์การใช้งาน (ใช้ร่วมกันทุกรายการ)
               </label>
               <textarea
                 name="purpose"
                 rows={3}
                 value={form.purpose}
-                onChange={handleChange}
+                onChange={handleGeneralChange}
                 placeholder="อบรมเชิงปฏิบัติการ, จัดประชุมกลุ่มสาระ..."
                 className="w-full border border-gray-300 rounded-lg p-2.5 text-sm text-gray-900 bg-white placeholder-gray-400 focus:ring-2 focus:ring-pink-500 outline-none transition"
               />
@@ -467,7 +691,7 @@ export default function BookingPage() {
               disabled={loading}
               className="w-full bg-gradient-to-r from-blue-600 to-pink-500 hover:from-blue-700 hover:to-pink-600 text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-pink-500/20 disabled:opacity-50 mt-4"
             >
-              {loading ? 'กำลังส่งคำขอ...' : 'ส่งคำขอจองห้อง'}
+              {loading ? 'กำลังส่งคำขอ...' : 'ส่งคำขอจองห้องทั้งหมด'}
             </button>
           </form>
         </div>
