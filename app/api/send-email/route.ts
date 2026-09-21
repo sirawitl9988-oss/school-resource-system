@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
     const userEmail = (requesterEmail || toEmail || '').trim()
     
-    // เพิ่มอีเมลแอดมินทั้ง 3 คน (รวมคุณสิรวิชญ์) ตรงนี้
+    // รายชื่ออีเมลแอดมินทั้ง 3 คน
     const adminEmails = [
       'tingdaiwa@utd.ac.th',
       'toonvivat252811@utd.ac.th',
@@ -35,24 +35,30 @@ export async function POST(request: Request) {
 
     // 1. กรณีแจ้งเตือนเมื่อมีคำขอเข้ามาใหม่
     if (!status) {
-      // 1.1 ส่งแจ้งเตือนหา Admin ทั้ง 3 คนพร้อมกัน
-      await transporter.sendMail({
-        from: `"${senderName}" <${process.env.GMAIL_USER}>`,
-        to: adminEmails.join(', '), // ส่งหาแอดมินหลายคนโดยคั่นด้วยเครื่องหมายจุลภาค (,)
-        subject: `[คำขอใหม่] ${title}`,
-        html: `
-          <div style="font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px;">
-            <h2 style="color: #2563eb; margin-top: 0;">${title}</h2>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;" />
-            <p><strong>ผู้ขอ/ผู้จอง:</strong> ${requesterName}</p>
-            <p><strong>อีเมลผู้ขอ:</strong> ${userEmail || 'ไม่ได้ระบุ'}</p>
-            <p><strong>หน่วยงาน/สังกัด:</strong> ${department || 'ไม่ได้ระบุ'}</p>
-            <p><strong>รายละเอียด:</strong> ${details}</p>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;" />
-            <p style="font-size: 12px; color: #64748b;">อีเมลนี้แจ้งเตือนอัตโนมัติถึง Admin ทุกท่าน</p>
-          </div>
-        `,
-      })
+      // 1.1 วนลูปส่งอีเมลหาแอดมินทีละคน (ป้องกัน Gmail บล็อกจากการส่งหลายคนพร้อมกันใน To เดียว)
+      for (const adminEmail of adminEmails) {
+        try {
+          await transporter.sendMail({
+            from: `"${senderName}" <${process.env.GMAIL_USER}>`,
+            to: adminEmail,
+            subject: `[คำขอใหม่] ${title}`,
+            html: `
+              <div style="font-family: sans-serif; padding: 20px; line-height: 1.6; max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; border-radius: 8px;">
+                <h2 style="color: #2563eb; margin-top: 0;">${title}</h2>
+                <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;" />
+                <p><strong>ผู้ขอ/ผู้จอง:</strong> ${requesterName}</p>
+                <p><strong>อีเมลผู้ขอ:</strong> ${userEmail || 'ไม่ได้ระบุ'}</p>
+                <p><strong>หน่วยงาน/สังกัด:</strong> ${department || 'ไม่ได้ระบุ'}</p>
+                <p><strong>รายละเอียด:</strong> ${details}</p>
+                <hr style="border: 0; border-top: 1px solid #eee; margin: 16px 0;" />
+                <p style="font-size: 12px; color: #64748b;">อีเมลนี้แจ้งเตือนอัตโนมัติถึง Admin</p>
+              </div>
+            `,
+          })
+        } catch (adminErr) {
+          console.error(`Failed to send email to admin (${adminEmail}):`, adminErr)
+        }
+      }
 
       // 1.2 ส่งยืนยันกลับไปหาผู้ยืม/ผู้จอง
       if (userEmail) {
